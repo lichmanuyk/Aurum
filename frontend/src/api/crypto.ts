@@ -35,9 +35,9 @@ export function deleteCryptoPortfolio(portfolioId: number) {
 // services/crypto_service.py. `portfolioId` only narrows what comes back in
 // `holdings` — the sync itself (and the 24h window) always covers every
 // portfolio, see refresh_prices' own docstring.
-export function fetchCryptoHoldings(portfolioId?: number | null) {
+export function fetchCryptoHoldings(portfolioId?: number | null, currency?: string) {
   const query = portfolioId != null ? `?portfolio_id=${portfolioId}` : "";
-  return api.get<CryptoSyncResult>(`/crypto/holdings${query}`);
+  return api.get<CryptoSyncResult>(`/crypto/holdings${query}${currency ? `${query ? "&" : "?"}currency=${encodeURIComponent(currency)}` : ""}`);
 }
 
 export function refreshCryptoPrices(portfolioId?: number | null) {
@@ -90,9 +90,9 @@ export function searchCryptoCoins(query: string) {
   return api.get<CryptoSearchResult[]>(`/crypto/search?q=${encodeURIComponent(query)}`);
 }
 
-export function fetchCryptoHistory(range: CryptoRange, portfolioId?: number | null) {
+export function fetchCryptoHistory(range: CryptoRange, portfolioId?: number | null, currency?: string) {
   const query = portfolioId != null ? `&portfolio_id=${portfolioId}` : "";
-  return api.get<CryptoHistoryResponse>(`/crypto/history?range=${range}${query}`);
+  return api.get<CryptoHistoryResponse>(`/crypto/history?range=${range}${query}${currency ? `&currency=${encodeURIComponent(currency)}` : ""}`);
 }
 
 export function fetchCrypto90dPerformance(portfolioId?: number | null) {

@@ -1,5 +1,6 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { formatCryptoAmount, maskAmount } from "@/lib/format";
+import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { CryptoHolding } from "@/types";
 
@@ -63,6 +64,7 @@ function DonutTooltip({
   hidden: boolean;
   otherLabel: string;
 }) {
+  const { formatCryptoAmount } = useSummaryFormat();
   if (!active || !payload?.length) return null;
   const slice = payload[0].payload;
   return (
@@ -83,6 +85,7 @@ function DonutTooltip({
  * Holdings with no network set fold into one "unset" slice rather than
  * disappearing, so nothing silently drops out of the total. */
 export function CryptoNetworkAllocationBody({ holdings, isLoading, hidden }: CryptoNetworkAllocationBodyProps) {
+  const { formatCryptoAmount } = useSummaryFormat();
   const { t } = useTranslation();
   const unsetLabel = t("crypto.networkAllocation.unset");
   const otherLabel = t("crypto.allocation.other");

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_session
+from app.api.deps import get_session, get_reporting_session
 from app.schemas.crypto import (
     CryptoHistoryResponse,
     CryptoHoldingCreate,
@@ -66,7 +66,7 @@ async def delete_portfolio_route(portfolio_id: int, session: AsyncSession = Depe
 
 @router.get("/holdings", response_model=CryptoSyncResult)
 async def read_holdings(
-    portfolio_id: int | None = None, session: AsyncSession = Depends(get_session)
+    portfolio_id: int | None = None, session: AsyncSession = Depends(get_reporting_session)
 ) -> CryptoSyncResult:
     """Opening the Crypto tab lands here — this is also where the lazy
     once-a-day auto-refresh happens (see services/crypto_service.py):
@@ -140,7 +140,7 @@ _HISTORY_RANGE_PATTERN = f"^({'|'.join(_HISTORY_RANGES)})$"
 async def read_crypto_history(
     range: str = Query(default="30d", pattern=_HISTORY_RANGE_PATTERN),
     portfolio_id: int | None = None,
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_reporting_session),
 ) -> CryptoHistoryResponse:
     return await get_crypto_history(session, range, portfolio_id)
 

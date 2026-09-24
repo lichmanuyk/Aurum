@@ -1,3 +1,4 @@
+import { SummaryCurrencyScope } from "@/lib/summaryCurrency";
 import { AutoFxRefresh } from "@/components/settings/AutoFxRefresh";
 import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
@@ -52,9 +53,9 @@ export default function App() {
         <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
           <AutoFxRefresh />
           <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/net-worth" element={<NetWorthPage />} />
-            <Route path="/crypto" element={<CryptoPage />} />
+            <Route path="/" element={<SummaryCurrencyScope><DashboardPage /></SummaryCurrencyScope>} />
+            <Route path="/net-worth" element={<SummaryCurrencyScope><NetWorthPage /></SummaryCurrencyScope>} />
+            <Route path="/crypto" element={<SummaryCurrencyScope><CryptoPage /></SummaryCurrencyScope>} />
             <Route path="/roi" element={<RoiPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />

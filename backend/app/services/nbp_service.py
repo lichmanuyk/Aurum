@@ -26,7 +26,8 @@ TABLE_A = set('THB USD AUD HKD CAD NZD SGD EUR HUF CHF GBP UAH JPY CZK DKK ISK N
 
 async def import_plan(session):
     settings = await get_or_create_app_settings(session)
-    currencies = {settings.currency, settings.idle_cash_threshold_currency}
+    # Include the summary display choices even without native EUR/USD accounts.
+    currencies = {settings.currency, settings.idle_cash_threshold_currency, "EUR", "USD"}
     for model, field in [(Account, Account.currency), (Asset, Asset.currency), (Budget, Budget.currency),
                          (Goal, Goal.currency), (Transaction, Transaction.reporting_currency_override),
                          (CryptoTransaction, CryptoTransaction.quote_currency)]:
