@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
 
 // Regression for the Aug 2026 bug: RecentTransactionsCard queried

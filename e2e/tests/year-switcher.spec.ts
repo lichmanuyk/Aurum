@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
 
 // Regression for v0.16.0/v0.16.1: `year` on Dashboard/Transactions/Budget

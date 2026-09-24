@@ -10,7 +10,7 @@ export type QuoteStatus = {
   crypto: { status: 'empty' | 'missing' | 'stale' | 'current'; last_synced_at: string | null; missing_prices: number };
 };
 
-export function QuoteFreshness() {
+export function QuoteFreshness({ compact = false }: { compact?: boolean }) {
   const { t, language } = useTranslation();
   const cache = useQueryClient();
   const status = useQuery({ queryKey: ['quote-status'], queryFn: () => api.get<QuoteStatus>('/fx-rates/status'), refetchInterval: 60000 });
@@ -27,11 +27,13 @@ export function QuoteFreshness() {
   });
   const time = (value: string) => new Date(value).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US');
   const data = status.data;
+  if (compact && data?.crypto.status === 'empty' && !status.error) return null;
   return <section aria-label={t('quotes.title')} className="space-y-2 rounded-xl border border-border p-4 text-sm">
-    <h2 className="font-medium">{t('quotes.title')}</h2>
+    {!compact && <h2 className="font-medium">{t('quotes.title')}</h2>}
     {status.isPending && <p>{t('common.loading')}</p>}
     {status.error && <p role="alert" className="text-danger">{t('quotes.statusError')}</p>}
     {data && <>
+      {!compact && <>
       <p className="text-xs text-text-muted">{t('quotes.fxHint', { currency: data.reporting_currency, date: data.as_of })}</p>
       {!data.fx.length && <p>{t('quotes.noFx')}</p>}
       {data.fx.map(item => <div key={item.currency} className="text-xs">
@@ -43,9 +45,10 @@ export function QuoteFreshness() {
       {!!data.fx.length && <Button variant="secondary" disabled={fx.isPending} onClick={() => fx.mutate()}>{fx.isPending ? t('quotes.updating') : t('quotes.updateFx')}</Button>}
       {fx.isSuccess && <p role="status">{t('quotes.fxDone')}</p>}
       {fx.error && <p role="alert" className="text-danger">{t('quotes.fxFailed')}</p>}
-      {data.crypto.status !== 'empty' && <div className="space-y-2 border-t border-border pt-2">
+      </>}
+      {data.crypto.status !== 'empty' && <div className="space-y-2">
         <p>{t('quotes.cryptoTime')}: {data.crypto.last_synced_at ? time(data.crypto.last_synced_at) : t('quotes.missing')}</p>
-        <p className={data.crypto.status !== 'current' ? 'text-danger' : 'text-text-muted'}>{t(`quotes.crypto.${data.crypto.status}`)}</p>
+        {(!compact || data.crypto.status !== 'current') && <p className={data.crypto.status !== 'current' ? 'text-danger' : 'text-text-muted'}>{t(`quotes.crypto.${data.crypto.status}`)}</p>}
         <Button variant="secondary" disabled={crypto.isPending} onClick={() => crypto.mutate()}>{crypto.isPending ? t('quotes.updating') : t('crypto.refreshButton')}</Button>
         {(crypto.error || crypto.data?.error_key) && <p role="alert" className="text-danger">{crypto.data?.error_key ? t(`crypto.syncError.${crypto.data.error_key}`) : t('quotes.cryptoFailed')}</p>}
         {crypto.data?.synced && !crypto.isPending && <p role="status">{t('quotes.cryptoDone')}</p>}

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures';
 
 for (const width of [1440,375]) {
   test(`major application pages render without runtime errors at ${width}px`, async ({page}) => {

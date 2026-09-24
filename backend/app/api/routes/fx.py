@@ -71,3 +71,15 @@ async def fx_coverage(session: AsyncSession = Depends(get_session)):
 async def read_quote_status(session: AsyncSession = Depends(get_session)):
     from app.services.quote_status_service import quote_status
     return await quote_status(session)
+
+
+@router.post('/nbp/latest')
+async def refresh_latest_nbp_rates(session: AsyncSession = Depends(get_session)):
+    from datetime import timedelta
+    from app.services.nbp_service import import_plan, import_rates
+    plan = await import_plan(session)
+    if not plan['currencies']:
+        return {'saved': 0, 'absent_currencies': []}
+    return await import_rates(session, NBPImport(
+        start_date=plan['end_date'] - timedelta(days=14),
+        end_date=plan['end_date'], currencies=plan['currencies']))

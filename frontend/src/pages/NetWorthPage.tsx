@@ -49,7 +49,7 @@ export function NetWorthPage() {
     <div className="space-y-5">
       <AlertBanner />
 
-      <QuoteFreshness />
+      <QuoteFreshness compact />
       <MoneyError error={error} />
       {!error && <>
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />

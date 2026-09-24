@@ -105,7 +105,7 @@ export function CryptoPage() {
 
   return (
     <div className="space-y-5">
-      <QuoteFreshness />
+      <QuoteFreshness compact />
       <MoneyError error={error ?? historyError ?? (data?.holdings.some(h => h.valuation_error) ? new Error("FX: проверьте исторические курсы / Check historical exchange rates") : null)} />
       <CryptoPortfolioTabs
         portfolios={portfolios ?? []}

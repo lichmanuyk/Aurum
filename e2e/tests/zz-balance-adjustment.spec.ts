@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures';
 
 test('signed opening balance preserves sub-cents and stays out of cash flow', async ({ page, request }) => {
   const snapshot = await (await request.get('/api/backup/export')).json();

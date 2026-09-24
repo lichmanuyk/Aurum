@@ -63,3 +63,19 @@ async def test_adding_coin_does_not_refresh_other_coins_timestamp(client, monkey
     before = (await client.get('/fx-rates/status')).json()['crypto']['last_synced_at']
     await _add_bitcoin(client)
     assert (await client.get('/fx-rates/status')).json()['crypto']['last_synced_at'] == before
+
+
+async def test_automatic_nbp_refresh_is_recent_and_preserves_manual_rates(client, monkeypatch):
+    from app.services import nbp_service
+    await client.patch('/settings', json={'currency': 'PLN'})
+    await account(client, 'EUR')
+    await rate(client, date.today(), value='4.3')
+    before = (await client.get('/fx-rates')).json()
+    async def fetch(currencies, start, end):
+        assert 'EUR' in currencies
+        assert end == date.today() and start == end - timedelta(days=14)
+        return [dict(base_currency='EUR', quote_currency='PLN', rate_date=end, rate='4.9', source='NBP:A:test')]
+    monkeypatch.setattr(nbp_service, 'fetch_rates', fetch)
+    result = await client.post('/fx-rates/nbp/latest')
+    assert result.status_code == 200 and result.json()['protected'] == 1
+    assert (await client.get('/fx-rates')).json() == before

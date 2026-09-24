@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 
 // The theme picker (Settings → Тема оформления): light/dark/system, with
 // system meant to follow the OS live and light/dark meant to override it.

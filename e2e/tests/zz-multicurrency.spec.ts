@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures';
 
 test('native EUR balance, actual PLN transfer amount, rate entry and reporting switch', async ({ page, request }) => {
   test.setTimeout(60000);

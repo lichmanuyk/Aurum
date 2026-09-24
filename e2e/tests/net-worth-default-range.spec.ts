@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 
 // Regression for v0.17.1: Net Worth defaulted to a 30-day window, which
 // frequently shows a dip just from short-window noise even when the

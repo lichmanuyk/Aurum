@@ -1,3 +1,4 @@
+import { AutoFxRefresh } from "@/components/settings/AutoFxRefresh";
 import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -49,6 +50,7 @@ export default function App() {
             gutter instead of handing it to the page. Padding alone keeps
             content off the sidebar/viewport edges. */}
         <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+          <AutoFxRefresh />
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/net-worth" element={<NetWorthPage />} />
