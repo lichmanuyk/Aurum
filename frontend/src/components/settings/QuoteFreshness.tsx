@@ -32,7 +32,7 @@ export function QuoteFreshness() {
     {status.isPending && <p>{t('common.loading')}</p>}
     {status.error && <p role="alert" className="text-danger">{t('quotes.statusError')}</p>}
     {data && <>
-      <p className="text-xs text-text-muted">{t('quotes.fxHint', { currency: data.reporting_currency })}</p>
+      <p className="text-xs text-text-muted">{t('quotes.fxHint', { currency: data.reporting_currency, date: data.as_of })}</p>
       {!data.fx.length && <p>{t('quotes.noFx')}</p>}
       {data.fx.map(item => <div key={item.currency} className="text-xs">
         <p className={item.status === 'missing' ? 'text-danger' : undefined}>
