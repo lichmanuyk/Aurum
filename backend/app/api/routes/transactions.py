@@ -1,3 +1,6 @@
+from app.core.money import require_ledger_money
+from app.models.account import Account
+from app.services.money_service import validate_transaction
 from datetime import date as date_
 from decimal import Decimal
 from typing import Literal
@@ -29,6 +32,7 @@ router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 _EAGER = (
     selectinload(Transaction.account),
+    selectinload(Transaction.transfer_account),
     selectinload(Transaction.category),
     selectinload(Transaction.tags),
     selectinload(Transaction.splits).selectinload(TransactionSplit.category),
@@ -75,7 +79,7 @@ async def _ensure_category_matches_type(
 
 
 async def _build_splits(
-    session: AsyncSession, splits: list[TransactionSplitInput], transaction_type: TransactionType
+    session: AsyncSession, splits: list[TransactionSplitInput], transaction_type: TransactionType, account_id: int
 ) -> list[TransactionSplit]:
     """A split's whole point is dividing one purchase's total across the
     *subcategories of one parent* (a hypermarket receipt: part groceries ->
@@ -87,8 +91,10 @@ async def _build_splits(
     enforced by requiring every split's own top-level ancestor
     (parent_id, or its own id if it has none) to agree.
     """
+    account = await session.get(Account, account_id)
     top_level_ids: set[int] = set()
     for split in splits:
+        require_ledger_money(split.amount, account.currency)
         category = await _ensure_category_matches_type(session, split.category_id, transaction_type)
         assert category is not None  # split.category_id is required (not Optional) on the schema
         top_level_ids.add(category.parent_id if category.parent_id is not None else category.id)
@@ -132,8 +138,8 @@ async def list_transactions(
         stmt = stmt.where(Transaction.date <= end_date)
         count_stmt = count_stmt.where(Transaction.date <= end_date)
     if account_id is not None:
-        stmt = stmt.where(Transaction.account_id == account_id)
-        count_stmt = count_stmt.where(Transaction.account_id == account_id)
+        stmt = stmt.where(or_(Transaction.account_id == account_id, Transaction.transfer_account_id == account_id))
+        count_stmt = count_stmt.where(or_(Transaction.account_id == account_id, Transaction.transfer_account_id == account_id))
     if category_id is not None:
         # A split transaction has category_id=NULL on the row itself — the
         # category lives on its split lines instead, so filtering by exact
@@ -197,10 +203,11 @@ async def list_transaction_years(session: AsyncSession = Depends(get_session)) -
 async def create_transaction(payload: TransactionCreate, session: AsyncSession = Depends(get_session)) -> Transaction:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
     fields = payload.model_dump(exclude={"tag_ids", "splits"})
+    await validate_transaction(session, fields)
     transaction = Transaction(**fields)
     transaction.tags = await _resolve_tags(session, payload.tag_ids)
     if payload.splits:
-        transaction.splits = await _build_splits(session, payload.splits, payload.type)
+        transaction.splits = await _build_splits(session, payload.splits, payload.type, payload.account_id)
     session.add(transaction)
     await session.commit()
     refreshed = await session.execute(
@@ -221,10 +228,12 @@ async def bulk_create_transactions(
 
     transactions = []
     for item in payload.items:
-        transaction = Transaction(**item.model_dump(exclude={"tag_ids", "splits"}))
+        fields = item.model_dump(exclude={"tag_ids", "splits"})
+        await validate_transaction(session, fields)
+        transaction = Transaction(**fields)
         transaction.tags = await _resolve_tags(session, item.tag_ids)
         if item.splits:
-            transaction.splits = await _build_splits(session, item.splits, item.type)
+            transaction.splits = await _build_splits(session, item.splits, item.type, item.account_id)
         transactions.append(transaction)
 
     session.add_all(transactions)
@@ -249,6 +258,8 @@ async def update_transaction(
     if transaction is None:
         raise HTTPException(status_code=404, detail="Transaction not found")
     updates = payload.model_dump(exclude_unset=True, exclude={"tag_ids", "splits"})
+    if any(updates.get(k, True) is None for k in ("account_id", "type", "amount", "date", "description")):
+        raise HTTPException(422, "Required transaction fields cannot be null")
     # Checks run against the row as it would look after the patch, not just
     # the fields sent: switching type alone can invalidate fields left
     # untouched.
@@ -290,12 +301,28 @@ async def update_transaction(
     if split_violation:
         raise HTTPException(status_code=400, detail=split_violation)
 
+    fields = {column.name: getattr(transaction, column.name) for column in Transaction.__table__.columns}
+    fields.update(updates)
+    if transaction.reporting_amount_override is not None and any(k in updates for k in ("amount", "date", "account_id")) and "reporting_amount_override" not in updates:
+        raise HTTPException(422, "Resubmit or explicitly clear the reporting override when changing monetary facts")
+    if any(k in updates for k in ("account_id", "transfer_account_id")) and fields["type"] == TransactionType.TRANSFER and "destination_amount" not in updates:
+        raise HTTPException(422, "Resubmit destination_amount when changing transfer accounts")
+    if fields["type"] == TransactionType.TRANSFER and "amount" in updates and "destination_amount" not in updates:
+        source = await session.get(Account, fields["account_id"])
+        target = await session.get(Account, fields["transfer_account_id"])
+        if source and target and source.currency == target.currency:
+            fields["destination_amount"] = fields["amount"]
+    await validate_transaction(session, fields)
+    account = await session.get(Account, fields["account_id"])
+    for split in payload.splits if payload.splits is not None else transaction.splits:
+        require_ledger_money(split.amount, account.currency)
+    updates["destination_amount"] = fields.get("destination_amount")
     for field, value in updates.items():
         setattr(transaction, field, value)
     if payload.tag_ids is not None:
         transaction.tags = await _resolve_tags(session, payload.tag_ids)
     if payload.splits is not None:
-        transaction.splits = await _build_splits(session, payload.splits, effective_type)
+        transaction.splits = await _build_splits(session, payload.splits, effective_type, fields["account_id"])
     await session.commit()
     refreshed = await session.execute(
         select(Transaction).options(*_EAGER).where(Transaction.id == transaction_id)

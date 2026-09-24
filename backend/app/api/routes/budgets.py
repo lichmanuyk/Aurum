@@ -14,6 +14,7 @@ router = APIRouter(prefix="/budgets", tags=["budgets"])
 def _to_read(budget: Budget) -> BudgetRead:
     return BudgetRead(
         id=budget.id,
+        currency=budget.currency,
         category_id=budget.category_id,
         category_name=budget.category.name,
         category_color=budget.category.color,

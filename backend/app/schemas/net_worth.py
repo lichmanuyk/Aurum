@@ -1,3 +1,4 @@
+from pydantic import Field
 from datetime import date as date_
 from decimal import Decimal
 
@@ -56,6 +57,8 @@ class RiskLevelSummary(BaseModel):
 
 
 class NetWorthSummary(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     range: str
     current: Decimal
     change_amount: Decimal

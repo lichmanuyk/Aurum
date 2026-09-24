@@ -381,7 +381,7 @@ async def test_update_rejects_a_category_on_a_transfer(client: AsyncClient, acco
 
 
 async def test_a_transfer_whose_destination_account_was_deleted_can_still_be_listed(
-    client: AsyncClient, account_id
+    client: AsyncClient, account_id, test_sessionmaker
 ):
     """Deleting an account nulls transfer_account_id on the transfers that
     pointed at it (the FK is ON DELETE SET NULL), leaving a row that create
@@ -394,7 +394,13 @@ async def test_a_transfer_whose_destination_account_was_deleted_can_still_be_lis
         "/transactions", json=_txn(account_id, type="transfer", transfer_account_id=other["id"], category_id=None)
     )
     txn_id = created.json()["id"]
-    assert (await client.delete(f"/accounts/{other['id']}")).status_code == 204
+    assert (await client.delete(f"/accounts/{other['id']}")).status_code == 409
+    # Reproduce an old database's missing destination without weakening new writes.
+    from sqlalchemy import delete
+    from app.models.account import Account
+    async with test_sessionmaker() as session:
+        await session.execute(delete(Account).where(Account.id == other["id"]))
+        await session.commit()
 
     listing = await client.get("/transactions")
 

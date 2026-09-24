@@ -1,3 +1,4 @@
+from app.core.money import Currency
 from datetime import date as date_
 from decimal import Decimal
 
@@ -22,7 +23,7 @@ class AssetValuationRead(BaseModel):
 class AssetBase(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     asset_class: AssetClass
-    currency: str = Field(default="USD", min_length=3, max_length=3)
+    currency: Currency = Field(default="USD", min_length=3, max_length=3)
     notes: str | None = Field(default=None, max_length=2000)
     capital_role: CapitalRole = CapitalRole.NEUTRAL
     # Rough self-reported monthly net cash flow — informational, not tracked
@@ -39,7 +40,7 @@ class AssetCreate(AssetBase):
 class AssetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=150)
     asset_class: AssetClass | None = None
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: Currency | None = Field(default=None, min_length=3, max_length=3)
     notes: str | None = Field(default=None, max_length=2000)
     capital_role: CapitalRole | None = None
     monthly_cash_flow: Decimal | None = Field(default=None, max_digits=14, decimal_places=2)

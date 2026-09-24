@@ -1,3 +1,4 @@
+from pydantic import Field
 from datetime import date as date_
 from decimal import Decimal
 
@@ -13,6 +14,8 @@ class CashFlowPoint(BaseModel):
 
 
 class CashFlowResponse(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     start_date: date_ | None
     end_date: date_ | None
     points: list[CashFlowPoint]

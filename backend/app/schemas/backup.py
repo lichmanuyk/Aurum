@@ -1,4 +1,6 @@
 """Shape of a full-database backup file (see services/backup_service.py)."""
+
+from app.schemas.fx import FXRateRead
 from datetime import date as date_
 from datetime import datetime
 from decimal import Decimal
@@ -51,6 +53,11 @@ class TagBackup(BaseModel):
 
 
 class TransactionBackup(BaseModel):
+    adjustment_reason: str | None = None
+    destination_amount: Decimal | None = None
+    reporting_amount_override: Decimal | None = None
+    reporting_currency_override: str | None = None
+    reporting_override_source: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -116,6 +123,7 @@ class CryptoPortfolioBackup(BaseModel):
 
 
 class CryptoHoldingBackup(BaseModel):
+    network: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     # asset_id doubles as this row's own primary key (see
@@ -143,18 +151,20 @@ class CryptoHoldingBackup(BaseModel):
 
 
 class CryptoTransactionBackup(BaseModel):
+    quote_currency: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     asset_id: int
     type: CryptoTransactionType
     quantity: Decimal
-    price_per_unit: Decimal
+    price_per_unit: Decimal | None
     date: date_
     note: str | None
 
 
 class BudgetBackup(BaseModel):
+    currency: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -163,6 +173,7 @@ class BudgetBackup(BaseModel):
 
 
 class GoalBackup(BaseModel):
+    currency: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -200,6 +211,7 @@ class RecurringTransactionBackup(BaseModel):
 
 
 class AppSettingsBackup(BaseModel):
+    idle_cash_threshold_currency: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     currency: str
@@ -221,6 +233,7 @@ class BackupPayload(BaseModel):
     checked on import so an incompatible/future file is rejected cleanly
     instead of half-applied."""
 
+    fx_rates: list[FXRateRead] = Field(default_factory=list)
     aurum_backup_version: int
     exported_at: datetime
     app_version: str

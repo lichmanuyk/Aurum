@@ -5,6 +5,10 @@ banner on every page), these are advisory notes shown only on the dedicated
 Advice page — a mix of positive, neutral, and cautionary tone, not just
 warnings, and not something the user needs to act on immediately.
 """
+
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
+from app.services.category_rollup import rollup_spending_by_top_level_category
 import calendar
 from collections import defaultdict
 from datetime import date
@@ -36,17 +40,8 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 
 async def _category_expense_totals(session: AsyncSession, year: int, month: int) -> dict[int, Decimal]:
     start, end = _month_bounds(year, month)
-    stmt = (
-        select(Transaction.category_id, func.sum(Transaction.amount))
-        .where(
-            Transaction.type == TransactionType.EXPENSE,
-            Transaction.category_id.is_not(None),
-            Transaction.date >= start,
-            Transaction.date <= end,
-        )
-        .group_by(Transaction.category_id)
-    )
-    return {row[0]: row[1] for row in (await session.execute(stmt)).all()}
+    rows = await rollup_spending_by_top_level_category(session, transaction_type=TransactionType.EXPENSE, start_date=start, end_date=end)
+    return {row.category_id: row.amount for row in rows}
 
 
 async def _rising_category_advice(session: AsyncSession, year: int, month: int) -> AdviceItem | None:
@@ -86,8 +81,8 @@ async def _rising_category_advice(session: AsyncSession, year: int, month: int) 
         params={
             "category": category.name,
             "percent": round(increase_percent),
-            "current": float(current),
-            "average": float(average),
+            "current": str(current),
+            "average": str(average),
         },
     )
 
@@ -109,7 +104,7 @@ async def _unbudgeted_top_category_advice(session: AsyncSession, year: int, mont
         return AdviceItem(
             key="unbudgeted_top_category",
             tone="neutral",
-            params={"category": category.name, "amount": float(amount)},
+            params={"category": category.name, "amount": str(amount)},
         )
 
     return None

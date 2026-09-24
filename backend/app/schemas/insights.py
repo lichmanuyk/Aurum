@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class FinancialAlert(BaseModel):
@@ -12,3 +12,4 @@ class FinancialAlert(BaseModel):
 
 class AlertsResponse(BaseModel):
     alerts: list[FinancialAlert]
+    unavailable_checks: list[dict] = Field(default_factory=list)

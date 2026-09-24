@@ -47,6 +47,8 @@ class RecurringTransactionUpdate(BaseModel):
 
 
 class RecurringTransactionRead(BaseModel):
+    currency: str
+    destination_currency: str | None
     id: int
     account_id: int
     account_name: str
@@ -69,3 +71,7 @@ class RecurringTransactionRead(BaseModel):
     next_due_date: date_
     is_due: bool
     days_until_due: int
+
+
+class RecurringPost(BaseModel):
+    destination_amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)

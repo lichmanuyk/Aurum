@@ -14,6 +14,9 @@ net worth. Both halves are collapsed into one
 daily, forward-filled series so the chart reads as one continuous line even
 though the two halves are updated at very different cadences.
 """
+
+from app.services.valuation_service import stock_series
+from app.services.fx_service import FXConverter
 from collections import defaultdict
 from datetime import date as date_
 from datetime import timedelta
@@ -159,14 +162,15 @@ async def _capital_role_summary(session: AsyncSession, current_by_asset: dict[in
     neutral / drain) instead of by asset class — always all three roles,
     even at zero, so the block reads as a fixed scale rather than a list
     that shuffles as assets are added."""
-    roles_result = await session.execute(select(Asset.id, Asset.capital_role, Asset.monthly_cash_flow))
+    roles_result = await session.execute(select(Asset.id, Asset.capital_role, Asset.monthly_cash_flow, Asset.currency))
 
     totals_value: dict[CapitalRole, Decimal] = defaultdict(Decimal)
     totals_flow: dict[CapitalRole, Decimal] = defaultdict(Decimal)
     counts: dict[CapitalRole, int] = defaultdict(int)
-    for asset_id, role, cash_flow in roles_result.all():
+    fx = await FXConverter.load(session)
+    for asset_id, role, cash_flow, currency in roles_result.all():
         totals_value[role] += current_by_asset.get(asset_id, Decimal("0"))
-        totals_flow[role] += cash_flow or Decimal("0")
+        totals_flow[role] += fx.convert(cash_flow or Decimal("0"), currency, date_.today())
         counts[role] += 1
 
     return [
@@ -244,17 +248,13 @@ def _resolve_start_date(range_key: str, cash_events: list[tuple[date_, Decimal]]
 
 async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWorthSummary:
     today = date_.today()
-    cash_events = await _cash_cumulative_events(session)
-    asset_events, class_totals, current_by_asset = await _asset_events_and_class_totals(session)
+    start = today - timedelta(days=RANGE_DAYS[range_key] - 1) if range_key in RANGE_DAYS else None
+    points, cash_today, current_by_asset, assets, fx = await stock_series(session, start, today, account_types=CASH_ACCOUNT_TYPES)
+    class_totals = defaultdict(Decimal)
+    for key, value in current_by_asset.items():
+        class_totals[assets[key].asset_class] += value
     capital_roles = await _capital_role_summary(session, current_by_asset)
-
-    start = _resolve_start_date(range_key, cash_events, asset_events, today)
-
-    cash_series = _daily_series(cash_events, start, today)
-    asset_series = _daily_series(asset_events, start, today)
-    series = [
-        NetWorthPoint(date=c.date, value=c.value + a.value) for c, a in zip(cash_series, asset_series, strict=True)
-    ]
+    series = [NetWorthPoint(date=day, value=value) for day, value in points]
 
     current = series[-1].value if series else Decimal("0")
     start_value = series[0].value if series else Decimal("0")
@@ -262,7 +262,7 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWor
     change_percent = float(change_amount / start_value * 100) if start_value else None
 
     # cash_events entries are already cumulative — the last one *is* today's total.
-    cash_today = cash_events[-1][1] if cash_events else Decimal("0")
+    # cash_today is the same as-of converted snapshot used by the final chart point.
     risk_levels = await _risk_level_summary(session, current_by_asset, cash_today)
 
     total = cash_today + sum(class_totals.values(), Decimal("0"))
@@ -281,6 +281,8 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWor
         )
 
     return NetWorthSummary(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         range=range_key,
         current=current,
         change_amount=change_amount,

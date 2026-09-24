@@ -4,6 +4,9 @@ and how much in total over N years" (single-category detail), and "which
 categories cost the most over this whole period" (ranking, across all
 categories of one kind at once, not just the current month).
 """
+
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
 from collections import defaultdict
 from datetime import date as date_
 from decimal import Decimal
@@ -49,26 +52,19 @@ async def get_category_spending_report(
     # Plain transactions filed directly under one of these categories, plus
     # split lines that assign part of a transaction to one of them — same
     # two sources category_rollup.py unions for the Dashboard/ranking report.
-    plain_stmt = select(Transaction.id, Transaction.date, Transaction.amount).where(
-        Transaction.category_id.in_(category_ids)
-    )
-    split_stmt = (
-        select(TransactionSplit.transaction_id, Transaction.date, TransactionSplit.amount)
-        .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
-        .where(TransactionSplit.category_id.in_(category_ids))
-    )
-    if start_date:
-        plain_stmt = plain_stmt.where(Transaction.date >= start_date)
-        split_stmt = split_stmt.where(Transaction.date >= start_date)
-    if end_date:
-        plain_stmt = plain_stmt.where(Transaction.date <= end_date)
-        split_stmt = split_stmt.where(Transaction.date <= end_date)
-
-    plain_rows = (await session.execute(plain_stmt)).all()
-    split_rows = (await session.execute(split_stmt)).all()
-    contributions = [(r[0], r[1], r[2]) for r in plain_rows] + [(r[0], r[1], r[2]) for r in split_rows]
+    fx = await FXConverter.load(session)
+    contributions = []
+    for tx in await transactions_for_reporting(session, start_date, end_date):
+        if tx.type not in (TransactionType.INCOME, TransactionType.EXPENSE):
+            continue
+        if tx.category_id not in category_ids and not any(line.category_id in category_ids for line in tx.splits):
+            continue
+        lines = fx.splits(tx) if tx.splits else [(tx.category_id, fx.transaction(tx))]
+        contributions.extend((tx.id, tx.date, amount) for cat_id, amount in lines if cat_id in category_ids)
 
     empty = CategorySpendingReport(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         category_id=category.id,
         category_name=category.name,
         category_color=category.color,
@@ -107,6 +103,8 @@ async def get_category_spending_report(
     average_per_month = (total_amount / months_count).quantize(Decimal("0.01")) if months_count else Decimal("0")
 
     return CategorySpendingReport(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         category_id=category.id,
         category_name=category.name,
         category_color=category.color,
@@ -167,4 +165,4 @@ async def get_category_ranking_report(
         for row in rows
     ]
 
-    return CategoryRankingReport(start_date=start_date, end_date=end_date, total_amount=total_amount, items=items)
+    return CategoryRankingReport(reporting_currency=(await FXConverter.load(session)).currency, start_date=start_date, end_date=end_date, total_amount=total_amount, items=items)

@@ -23,6 +23,8 @@ class CategorySpendingPoint(BaseModel):
 
 
 class CategorySpendingReport(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     category_id: int
     category_name: str
     category_color: str
@@ -50,6 +52,8 @@ class CategoryRankingItem(BaseModel):
 
 
 class CategoryRankingReport(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     start_date: date_ | None
     end_date: date_ | None
     total_amount: Decimal

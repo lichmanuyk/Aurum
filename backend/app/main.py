@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    fx,
     accounts,
     advice,
     assets,
@@ -70,6 +71,7 @@ if cors_origins:
         allow_headers=["*"],
     )
 
+app.include_router(fx.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(accounts.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")

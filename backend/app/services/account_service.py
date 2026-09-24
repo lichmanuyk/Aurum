@@ -4,6 +4,11 @@ amount from the source account to the destination account) rather than
 stored, the same "derive it, don't duplicate it" approach
 net_worth_service.py uses for Cash.
 """
+
+from app.services.settings_service import get_or_create_app_settings
+from sqlalchemy import or_
+from app.models.recurring import RecurringTransaction
+from app.services.money_service import native_balances
 from collections import defaultdict
 from decimal import Decimal
 
@@ -18,20 +23,7 @@ from app.schemas.account import AccountCreate, AccountUpdate, AccountWithBalance
 
 
 async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
-    result = await session.execute(
-        select(Transaction.type, Transaction.amount, Transaction.account_id, Transaction.transfer_account_id)
-    )
-    balances: dict[int, Decimal] = defaultdict(Decimal)
-    for tx_type, amount, account_id, transfer_account_id in result.all():
-        if tx_type == TransactionType.INCOME:
-            balances[account_id] += amount
-        elif tx_type == TransactionType.EXPENSE:
-            balances[account_id] -= amount
-        elif tx_type == TransactionType.TRANSFER:
-            balances[account_id] -= amount
-            if transfer_account_id is not None:
-                balances[transfer_account_id] += amount
-    return balances
+    return await native_balances(session)
 
 
 def _to_read(account: Account, balance: Decimal) -> AccountWithBalance:
@@ -56,7 +48,10 @@ async def list_accounts(session: AsyncSession, include_archived: bool) -> list[A
 
 
 async def create_account(session: AsyncSession, payload: AccountCreate) -> AccountWithBalance:
-    account = Account(**payload.model_dump())
+    fields = payload.model_dump()
+    if "currency" not in payload.model_fields_set:
+        fields["currency"] = (await get_or_create_app_settings(session)).currency
+    account = Account(**fields)
     session.add(account)
     await session.commit()
     await session.refresh(account)
@@ -68,6 +63,11 @@ async def update_account(session: AsyncSession, account_id: int, payload: Accoun
     account = await session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    if "currency" in payload.model_fields_set and payload.currency is None:
+        raise HTTPException(422, "Currency cannot be null")
+    if payload.currency is not None and payload.currency != account.currency:
+        if await _has_history(session, account_id):
+            raise HTTPException(409, "Currency cannot change after money or recurring templates exist")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
     await session.commit()
@@ -80,5 +80,14 @@ async def delete_account(session: AsyncSession, account_id: int) -> None:
     account = await session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account not found")
+    if await _has_history(session, account_id):
+        raise HTTPException(409, "Archive accounts with history instead of deleting them")
     await session.delete(account)
     await session.commit()
+
+
+async def _has_history(session, account_id):
+    for model in (Transaction, RecurringTransaction):
+        if await session.scalar(select(model.id).where(or_(model.account_id == account_id, model.transfer_account_id == account_id)).limit(1)):
+            return True
+    return False

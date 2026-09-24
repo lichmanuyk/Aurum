@@ -1,3 +1,5 @@
+from fastapi import HTTPException
+from app.core.money import require_money
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,10 @@ async def read_settings(session: AsyncSession = Depends(get_session)) -> AppSett
 @router.patch("", response_model=AppSettingsRead)
 async def update_settings(payload: AppSettingsUpdate, session: AsyncSession = Depends(get_session)) -> AppSettings:
     settings = await get_or_create_app_settings(session)
+    updates = payload.model_dump(exclude_unset=True)
+    if any(value is None for value in updates.values()):
+        raise HTTPException(422, "Settings cannot be null")
+    require_money(updates.get("idle_cash_threshold_amount", settings.idle_cash_threshold_amount), updates.get("idle_cash_threshold_currency", settings.idle_cash_threshold_currency))
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(settings, field, value)
     await session.commit()

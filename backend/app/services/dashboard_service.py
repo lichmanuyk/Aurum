@@ -1,4 +1,7 @@
 """Aggregation logic behind the Overview dashboard."""
+
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
 import calendar
 from datetime import date
 from decimal import Decimal
@@ -25,13 +28,12 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
 async def get_dashboard_summary(session: AsyncSession, year: int, month: int) -> DashboardSummary:
     start, end = _month_bounds(year, month)
 
-    totals_stmt = (
-        select(Transaction.type, func.coalesce(func.sum(Transaction.amount), 0))
-        .where(Transaction.date >= start, Transaction.date <= end)
-        .group_by(Transaction.type)
-    )
-    totals_result = await session.execute(totals_stmt)
-    totals: dict[TransactionType, Decimal] = {row[0]: row[1] for row in totals_result.all()}
+    fx = await FXConverter.load(session)
+    totals = {}
+    for tx in await transactions_for_reporting(session, start, end):
+        if tx.type == TransactionType.ADJUSTMENT:
+            continue
+        totals[tx.type] = totals.get(tx.type, Decimal(0)) + fx.transaction(tx)
 
     real_income = totals.get(TransactionType.INCOME, Decimal("0"))
     spent = totals.get(TransactionType.EXPENSE, Decimal("0"))
@@ -75,6 +77,8 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
         )
 
     return DashboardSummary(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         year=year,
         month=month,
         real_income=real_income,

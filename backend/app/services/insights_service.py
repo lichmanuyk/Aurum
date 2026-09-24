@@ -11,6 +11,10 @@ get_or_create_app_settings. The budget check is the opposite: it deliberately
 looks at the CURRENT, still-in-progress month, since the whole point is to
 catch overspending while there's still time to react.
 """
+
+from fastapi import HTTPException
+from app.services.money_service import native_balances
+from app.services.fx_service import FXConverter
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
@@ -100,24 +104,17 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
     rows = await session.execute(
         select(Transaction.type, Transaction.amount, Transaction.account_id, Transaction.transfer_account_id, Transaction.date)
     )
-    balances: dict[int, Decimal] = defaultdict(Decimal)
-    last_activity: dict[int, date] = {}
-
-    def touch(account_id: int | None, tx_date: date) -> None:
-        if account_id in eligible_ids and (account_id not in last_activity or tx_date > last_activity[account_id]):
-            last_activity[account_id] = tx_date
-
-    for tx_type, amount, account_id, transfer_account_id, tx_date in rows.all():
-        if tx_type == TransactionType.INCOME:
-            balances[account_id] += amount
-        elif tx_type == TransactionType.EXPENSE:
-            balances[account_id] -= amount
-        elif tx_type == TransactionType.TRANSFER:
-            balances[account_id] -= amount
-            if transfer_account_id is not None:
-                balances[transfer_account_id] += amount
-        touch(account_id, tx_date)
-        touch(transfer_account_id, tx_date)
+    balances = await native_balances(session)
+    currencies = dict((await session.execute(select(Account.id, Account.currency))).all())
+    fx = await FXConverter.load(session)
+    settings = await get_or_create_app_settings(session)
+    balances = {key: fx.convert(value, currencies[key], date.today(), settings.idle_cash_threshold_currency) for key, value in balances.items() if key in eligible_ids}
+    last_activity = {}
+    for _, _, account_id, destination_id, tx_date in rows.all():
+        if tx_date <= date.today():
+            for key in (account_id, destination_id):
+                if key in eligible_ids:
+                    last_activity[key] = max(last_activity.get(key, tx_date), tx_date)
 
     cutoff = date.today() - timedelta(days=threshold_days)
     return sum(
@@ -132,60 +129,81 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
     settings = await get_or_create_app_settings(session)
     alerts: list[FinancialAlert] = []
 
-    cash_flow_streak = await _negative_cash_flow_streak(session)
-    if cash_flow_streak >= settings.negative_cash_flow_threshold_months:
-        alerts.append(
-            FinancialAlert(
-                key="negative_cash_flow_streak",
-                severity="warning",
-                params={"months": cash_flow_streak},
+    unavailable = []
+    try:
+        cash_flow_streak = await _negative_cash_flow_streak(session)
+        if cash_flow_streak >= settings.negative_cash_flow_threshold_months:
+            alerts.append(
+                FinancialAlert(
+                    key="negative_cash_flow_streak",
+                    severity="warning",
+                    params={"months": cash_flow_streak},
+                )
             )
-        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        unavailable.append({"check": "cash_flow", "detail": exc.detail})
 
-    net_worth_summary = await get_net_worth_summary(session, "all")
+    try:
+        net_worth_summary = await get_net_worth_summary(session, "all")
 
-    net_worth_streak = _net_worth_decline_streak(net_worth_summary)
-    if net_worth_streak >= settings.net_worth_decline_threshold_months:
-        alerts.append(
-            FinancialAlert(
-                key="net_worth_decline_streak",
-                severity="warning",
-                params={"months": net_worth_streak},
+        net_worth_streak = _net_worth_decline_streak(net_worth_summary)
+        if net_worth_streak >= settings.net_worth_decline_threshold_months:
+            alerts.append(
+                FinancialAlert(
+                    key="net_worth_decline_streak",
+                    severity="warning",
+                    params={"months": net_worth_streak},
+                )
             )
-        )
 
-    risky_percent = sum(tier.percent for tier in net_worth_summary.risk_levels if tier.risk_level != "low")
-    if risky_percent > settings.risky_allocation_threshold_percent:
-        alerts.append(
-            FinancialAlert(
-                key="risky_allocation_exceeded",
-                severity="warning",
-                params={"percent": round(risky_percent), "threshold": settings.risky_allocation_threshold_percent},
+        risky_percent = sum(tier.percent for tier in net_worth_summary.risk_levels if tier.risk_level != "low")
+        if risky_percent > settings.risky_allocation_threshold_percent:
+            alerts.append(
+                FinancialAlert(
+                    key="risky_allocation_exceeded",
+                    severity="warning",
+                    params={"percent": round(risky_percent), "threshold": settings.risky_allocation_threshold_percent},
+                )
             )
-        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        unavailable.append({"check": "net_worth", "detail": exc.detail})
 
-    today = date.today()
-    budget_status = await get_budget_status(session, today.year, today.month)
-    over_budget_count = sum(1 for item in budget_status.items if item.is_over_budget)
-    if over_budget_count > 0:
-        alerts.append(
-            FinancialAlert(
-                key="budget_exceeded",
-                severity="warning",
-                params={"count": over_budget_count},
+    try:
+        today = date.today()
+        budget_status = await get_budget_status(session, today.year, today.month)
+        over_budget_count = sum(1 for item in budget_status.items if item.is_over_budget)
+        if over_budget_count > 0:
+            alerts.append(
+                FinancialAlert(
+                    key="budget_exceeded",
+                    severity="warning",
+                    params={"count": over_budget_count},
+                )
             )
-        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        unavailable.append({"check": "budgets", "detail": exc.detail})
 
-    idle_cash_count = await _idle_cash_account_count(
-        session, settings.idle_cash_threshold_amount, settings.idle_cash_threshold_days
-    )
-    if idle_cash_count > 0:
-        alerts.append(
-            FinancialAlert(
-                key="idle_cash",
-                severity="warning",
-                params={"count": idle_cash_count, "days": settings.idle_cash_threshold_days},
+    try:
+        idle_cash_count = await _idle_cash_account_count(
+            session, settings.idle_cash_threshold_amount, settings.idle_cash_threshold_days
+        )
+        if idle_cash_count > 0:
+            alerts.append(
+                FinancialAlert(
+                    key="idle_cash",
+                    severity="warning",
+                    params={"count": idle_cash_count, "days": settings.idle_cash_threshold_days},
+                )
             )
-        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        unavailable.append({"check": "idle_cash", "detail": exc.detail})
 
-    return AlertsResponse(alerts=alerts)
+    return AlertsResponse(alerts=alerts, unavailable_checks=unavailable)

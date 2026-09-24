@@ -4,6 +4,8 @@ background job (see also insights_service.py's docstring on scope): the
 schedule only advances when the user actually clicks Post, so a missed
 week never silently back-fills a pile of transactions.
 """
+
+from app.services.money_service import validate_transaction
 import calendar
 from datetime import date as date_
 from datetime import timedelta
@@ -72,6 +74,8 @@ def _to_read(recurring: RecurringTransaction) -> RecurringTransactionRead:
     next_due = _next_due_date(recurring)
     today = date_.today()
     return RecurringTransactionRead(
+        currency=recurring.account.currency,
+        destination_currency=recurring.transfer_account.currency if recurring.transfer_account else None,
         id=recurring.id,
         account_id=recurring.account_id,
         account_name=recurring.account.name,
@@ -115,6 +119,7 @@ async def list_recurring(session: AsyncSession) -> list[RecurringTransactionRead
 
 async def create_recurring(session: AsyncSession, payload: RecurringTransactionCreate) -> RecurringTransactionRead:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
+    await validate_transaction(session, payload.model_dump(), template=True)
     recurring = RecurringTransaction(**payload.model_dump())
     session.add(recurring)
     await session.commit()
@@ -129,6 +134,9 @@ async def update_recurring(
     effective_type = updates.get("type", recurring.type)
     effective_category_id = updates.get("category_id", recurring.category_id)
     await _ensure_category_matches_type(session, effective_category_id, effective_type)
+    fields = {column.name: getattr(recurring, column.name) for column in RecurringTransaction.__table__.columns}
+    fields.update(updates)
+    await validate_transaction(session, fields, template=True)
     for field, value in updates.items():
         setattr(recurring, field, value)
     await session.commit()
@@ -143,25 +151,16 @@ async def delete_recurring(session: AsyncSession, recurring_id: int) -> None:
     await session.commit()
 
 
-async def post_recurring(session: AsyncSession, recurring_id: int) -> RecurringTransactionRead:
+async def post_recurring(session: AsyncSession, recurring_id: int, destination_amount=None) -> RecurringTransactionRead:
     """Creates a real Transaction from the template, dated today, and moves
     last_posted_date forward — the only thing that advances the schedule."""
     recurring = await _get_or_404(session, recurring_id)
     today = date_.today()
 
-    session.add(
-        Transaction(
-            account_id=recurring.account_id,
-            category_id=recurring.category_id,
-            transfer_account_id=recurring.transfer_account_id,
-            type=recurring.type,
-            amount=recurring.amount,
-            description=recurring.description,
-            merchant=recurring.merchant,
-            notes=recurring.notes,
-            date=today,
-        )
-    )
+    fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes")}
+    fields.update(date=today, destination_amount=destination_amount)
+    await validate_transaction(session, fields)
+    session.add(Transaction(**fields))
     recurring.last_posted_date = today
     await session.commit()
     return _to_read(await _get_or_404(session, recurring_id))

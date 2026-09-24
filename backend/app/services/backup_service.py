@@ -9,6 +9,12 @@ run first, before any row is touched), and any failure during the swap rolls
 the database back to exactly where it was, so a bad file never leaves the
 app half-restored.
 """
+
+from app.models.fx import FXRate
+from app.models.crypto import CryptoSyncState
+from app.core.money import currency_code, validate_money, validate_ledger_money, adjustment_rule_violation
+from app.models.enums import TransactionType
+from app.schemas.fx import FXRateRead
 import logging
 from datetime import datetime, timezone
 
@@ -49,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 4
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -70,6 +76,7 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
     app_settings = await session.get(AppSettings, 1)
 
     return BackupPayload(
+        fx_rates=[FXRateRead.model_validate(r) for r in (await session.scalars(select(FXRate))).all()],
         aurum_backup_version=BACKUP_FORMAT_VERSION,
         exported_at=datetime.now(timezone.utc),
         app_version=APP_VERSION,
@@ -182,7 +189,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version != BACKUP_FORMAT_VERSION:
+    if payload.aurum_backup_version not in (1, 2, 3, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -190,8 +197,12 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         )
 
     _validate_references(payload)
+    _validate_money_backup(payload)
 
     try:
+        await session.execute(delete(FXRate))
+        await session.execute(delete(CryptoSyncState))
+        session.add_all(FXRate(**row.model_dump()) for row in payload.fx_rates)
         # Children before parents.
         await session.execute(delete(AssetValuation))
         await session.execute(delete(CryptoTransaction))
@@ -275,6 +286,7 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         if any(row.tag_ids for row in payload.transactions):
             await session.flush()
 
+        await _reset_sequence(session, "fx_rates", payload.fx_rates)
         await _reset_sequence(session, "accounts", payload.accounts)
         await _reset_sequence(session, "categories", payload.categories)
         await _reset_sequence(session, "tags", payload.tags)
@@ -313,3 +325,110 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         # it; the client gets told only that nothing changed.
         logger.exception("Backup restore failed")
         raise HTTPException(400, "Restore failed, no changes were made") from exc
+
+
+def _validate_money_backup(payload):
+    """Preflight runs before deletes; v1 unresolved facts are preserved, never guessed."""
+    from app.schemas.transaction import transfer_rule_violation
+    from collections import defaultdict
+    accounts = {a.id: a for a in payload.accounts}
+    try:
+        currency_code(payload.app_settings.currency)
+        for name in ("accounts", "categories", "transactions", "assets", "asset_valuations", "goals", "budgets", "tags", "transaction_splits", "crypto_transactions", "crypto_portfolios", "goal_contributions", "recurring_transactions", "fx_rates"):
+            rows = getattr(payload, name)
+            if len({r.id for r in rows}) != len(rows):
+                raise ValueError(f"Duplicate IDs in {name}")
+        for row in [*payload.accounts, *payload.assets]:
+            currency_code(row.currency)
+        for row in [*payload.goals, *payload.budgets]:
+            if row.currency is None and payload.aurum_backup_version == 1:
+                row.currency = payload.app_settings.currency
+            currency_code(row.currency)
+        if payload.app_settings.idle_cash_threshold_currency is None:
+            if payload.aurum_backup_version != 1:
+                raise ValueError("Missing threshold currency")
+            payload.app_settings.idle_cash_threshold_currency = payload.app_settings.currency
+        currency_code(payload.app_settings.idle_cash_threshold_currency)
+        validate_money(payload.app_settings.idle_cash_threshold_amount, payload.app_settings.idle_cash_threshold_currency)
+        assets = {a.id: a for a in payload.assets}
+        goals = {g.id: g for g in payload.goals}
+        for row in payload.goals:
+            validate_money(row.target_amount, row.currency)
+            if row.target_amount <= 0:
+                raise ValueError("Goal target must be positive")
+        for row in payload.budgets:
+            validate_money(row.monthly_limit, row.currency)
+            if row.monthly_limit <= 0:
+                raise ValueError("Budget limit must be positive")
+        for row in payload.goal_contributions:
+            validate_money(row.amount, goals[row.goal_id].currency)
+        for row in payload.asset_valuations:
+            validate_money(row.value, assets[row.asset_id].currency)
+        for row in payload.assets:
+            if row.monthly_cash_flow is not None:
+                validate_money(row.monthly_cash_flow, row.currency)
+        for row in payload.recurring_transactions:
+            validate_money(row.amount, accounts[row.account_id].currency)
+            violation = transfer_rule_violation(type=row.type, account_id=row.account_id,
+                transfer_account_id=row.transfer_account_id, category_id=row.category_id)
+            if row.amount <= 0 or violation or row.type == TransactionType.ADJUSTMENT:
+                raise ValueError(violation or "Recurring amount must be positive")
+        for row in payload.crypto_transactions:
+            if row.quote_currency is not None:
+                currency_code(row.quote_currency)
+            if not row.quantity.is_finite() or row.quantity <= 0 or (row.price_per_unit is not None and (not row.price_per_unit.is_finite() or row.price_per_unit < 0)):
+                raise ValueError("Invalid crypto quantity or price")
+        from app.services.crypto_service import _validate_trade_history
+        for holding in payload.crypto_holdings:
+            _validate_trade_history([t for t in payload.crypto_transactions if t.asset_id == holding.asset_id])
+        if len({h.asset_id for h in payload.crypto_holdings}) != len(payload.crypto_holdings):
+            raise ValueError("Duplicate crypto holdings")
+        keys = set()
+        for rate in payload.fx_rates:
+            key = (rate.base_currency, rate.quote_currency, rate.rate_date)
+            if rate.base_currency >= rate.quote_currency or key in keys:
+                raise ValueError("FX pairs must be canonical and unique")
+            keys.add(key)
+        splits = defaultdict(list)
+        for split in payload.transaction_splits:
+            splits[split.transaction_id].append(split)
+        for tx in payload.transactions:
+            violation = transfer_rule_violation(type=tx.type, account_id=tx.account_id,
+                transfer_account_id=tx.transfer_account_id, category_id=tx.category_id)
+            if violation:
+                raise ValueError(violation)
+            native = accounts[tx.account_id].currency
+            validate_ledger_money(tx.amount, native)
+            violation = adjustment_rule_violation(tx.type, tx.amount, tx.adjustment_reason, tx.category_id)
+            if violation or (tx.type == TransactionType.ADJUSTMENT and splits[tx.id]):
+                raise ValueError(violation or "Adjustments cannot have splits")
+            if tx.type == TransactionType.TRANSFER:
+                target = accounts.get(tx.transfer_account_id)
+                if tx.transfer_account_id == tx.account_id or tx.category_id is not None or splits[tx.id]:
+                    raise ValueError("Invalid transfer")
+                if target and target.currency == native:
+                    if tx.destination_amount is None and payload.aurum_backup_version == 1:
+                        tx.destination_amount = tx.amount
+                    if tx.destination_amount != tx.amount:
+                        raise ValueError("Same-currency transfer amounts differ")
+                if tx.destination_amount is not None:
+                    if tx.destination_amount <= 0:
+                        raise ValueError("Invalid destination amount")
+                    if target:
+                        validate_ledger_money(tx.destination_amount, target.currency)
+            elif tx.destination_amount is not None or tx.transfer_account_id is not None:
+                raise ValueError("Non-transfer has destination")
+            override = (tx.reporting_amount_override, tx.reporting_currency_override, tx.reporting_override_source)
+            if any(v is not None for v in override):
+                if not all(v is not None for v in override) or tx.type not in (TransactionType.INCOME, TransactionType.EXPENSE) or override[0] <= 0:
+                    raise ValueError("Invalid reporting override")
+                validate_ledger_money(override[0], override[1])
+            if splits[tx.id]:
+                if len(splits[tx.id]) < 2 or tx.category_id is not None or sum(s.amount for s in splits[tx.id]) != tx.amount:
+                    raise ValueError("Invalid split total")
+                for split in splits[tx.id]:
+                    validate_ledger_money(split.amount, native)
+                    if split.amount <= 0:
+                        raise ValueError("Invalid split amount")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, str(exc)) from exc

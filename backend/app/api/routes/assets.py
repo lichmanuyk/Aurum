@@ -1,3 +1,6 @@
+from app.services.settings_service import get_or_create_app_settings
+from app.core.money import require_money
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -14,7 +17,7 @@ _EAGER = (selectinload(Asset.valuations),)
 
 
 def _to_read(asset: Asset) -> AssetRead:
-    latest = asset.valuations[-1] if asset.valuations else None
+    latest = next((v for v in reversed(asset.valuations) if v.as_of_date <= date.today()), None)
     return AssetRead(
         id=asset.id,
         name=asset.name,
@@ -40,12 +43,14 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
     asset = Asset(
         name=payload.name,
         asset_class=payload.asset_class,
-        currency=payload.currency,
+        currency=payload.currency if "currency" in payload.model_fields_set else (await get_or_create_app_settings(session)).currency,
         notes=payload.notes,
         capital_role=payload.capital_role,
         monthly_cash_flow=payload.monthly_cash_flow,
         risk_level=payload.risk_level,
     )
+    require_money(payload.value, asset.currency)
+    require_money(payload.monthly_cash_flow or 0, asset.currency)
     session.add(asset)
     await session.flush()
     session.add(AssetValuation(asset_id=asset.id, value=payload.value, as_of_date=payload.as_of_date))
@@ -61,6 +66,12 @@ async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSessio
     asset = result.scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    if "currency" in payload.model_fields_set and payload.currency is None:
+        raise HTTPException(422, "Currency cannot be null")
+    if payload.currency is not None and payload.currency != asset.currency and asset.valuations:
+        raise HTTPException(409, "Asset currency cannot change after valuations exist")
+    if payload.monthly_cash_flow is not None:
+        require_money(payload.monthly_cash_flow, asset.currency)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(asset, field, value)
     await session.commit()
@@ -79,6 +90,7 @@ async def add_asset_valuation(
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    require_money(payload.value, asset.currency)
     upsert_stmt = (
         pg_insert(AssetValuation)
         .values(asset_id=asset_id, value=payload.value, as_of_date=payload.as_of_date)
