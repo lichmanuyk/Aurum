@@ -100,10 +100,11 @@ def _to_read(recurring: RecurringTransaction) -> RecurringTransactionRead:
     )
 
 
-async def _get_or_404(session: AsyncSession, recurring_id: int) -> RecurringTransaction:
-    result = await session.execute(
-        select(RecurringTransaction).options(*_EAGER).where(RecurringTransaction.id == recurring_id)
-    )
+async def _get_or_404(session: AsyncSession, recurring_id: int, *, lock: bool = False) -> RecurringTransaction:
+    statement = select(RecurringTransaction).options(*_EAGER).where(RecurringTransaction.id == recurring_id)
+    if lock:
+        statement = statement.with_for_update()
+    result = await session.execute(statement)
     recurring = result.scalar_one_or_none()
     if recurring is None:
         raise HTTPException(status_code=404, detail="Recurring transaction not found")
@@ -131,6 +132,9 @@ async def update_recurring(
 ) -> RecurringTransactionRead:
     recurring = await _get_or_404(session, recurring_id)
     updates = payload.model_dump(exclude_unset=True)
+    required = ("account_id", "type", "amount", "description", "frequency", "anchor_date", "is_active")
+    if any(key in updates and updates[key] is None for key in required):
+        raise HTTPException(422, "Required recurring fields cannot be null")
     effective_type = updates.get("type", recurring.type)
     effective_category_id = updates.get("category_id", recurring.category_id)
     await _ensure_category_matches_type(session, effective_category_id, effective_type)
@@ -154,8 +158,11 @@ async def delete_recurring(session: AsyncSession, recurring_id: int) -> None:
 async def post_recurring(session: AsyncSession, recurring_id: int, destination_amount=None) -> RecurringTransactionRead:
     """Creates a real Transaction from the template, dated today, and moves
     last_posted_date forward — the only thing that advances the schedule."""
-    recurring = await _get_or_404(session, recurring_id)
+    # Serialize competing clicks before checking the committed posting date.
+    recurring = await _get_or_404(session, recurring_id, lock=True)
     today = date_.today()
+    if not recurring.is_active or recurring.last_posted_date == today:
+        raise HTTPException(409, "Template is inactive or already posted today")
 
     fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes")}
     fields.update(date=today, destination_amount=destination_amount)
