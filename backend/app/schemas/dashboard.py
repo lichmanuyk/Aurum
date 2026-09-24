@@ -29,6 +29,8 @@ class CategoryBreakdownItem(BaseModel):
 
 
 class DashboardSummary(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     year: int
     month: int
     real_income: Decimal

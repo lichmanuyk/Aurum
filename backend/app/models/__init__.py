@@ -1,3 +1,4 @@
+from app.models.fx import FXRate
 from app.models.account import Account
 from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget

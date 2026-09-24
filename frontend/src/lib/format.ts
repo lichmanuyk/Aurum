@@ -112,3 +112,8 @@ export function pluralizeRu(count: number, one: string, few: string, many: strin
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
+
+/** Exact fiat display; compact chart labels continue to use formatCurrency. */
+export function formatMoney(amount: number | string, currency: string): string {
+  return new Intl.NumberFormat(getIntlLocale(), { style: "currency", currency, maximumFractionDigits: 6 }).format(amount as number);
+}

@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +14,7 @@ interface GoalFormModalProps {
   goal?: Goal | null;
 }
 
-const EMPTY_FORM = { name: "", target_amount: "", target_date: "" };
+const EMPTY_FORM = { currency: getCurrency(), name: "", target_amount: "", target_date: "" };
 
 export function GoalFormModal({ open, onClose, goal }: GoalFormModalProps) {
   const { t } = useTranslation();
@@ -25,9 +27,9 @@ export function GoalFormModal({ open, onClose, goal }: GoalFormModalProps) {
   useEffect(() => {
     if (!open) return;
     if (goal) {
-      setForm({ name: goal.name, target_amount: goal.target_amount, target_date: goal.target_date ?? "" });
+      setForm({ currency: goal.currency, name: goal.name, target_amount: goal.target_amount, target_date: goal.target_date ?? "" });
     } else {
-      setForm(EMPTY_FORM);
+      setForm({ ...EMPTY_FORM, currency: getCurrency() });
     }
     setError(null);
   }, [open, goal]);
@@ -39,6 +41,7 @@ export function GoalFormModal({ open, onClose, goal }: GoalFormModalProps) {
     setError(null);
 
     const input = {
+      currency: form.currency,
       name: form.name,
       target_amount: form.target_amount,
       target_date: form.target_date || null,
@@ -59,6 +62,7 @@ export function GoalFormModal({ open, onClose, goal }: GoalFormModalProps) {
   return (
     <Dialog open={open} onClose={onClose} title={goal ? t("goal.form.editTitle") : t("goal.form.newTitle")}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        <CurrencySelect value={form.currency} disabled={Boolean(goal)} onChange={currency => setForm(prev => ({ ...prev, currency }))} />
         <div>
           <Label htmlFor="goal-name">{t("goal.form.nameLabel")}</Label>
           <Input

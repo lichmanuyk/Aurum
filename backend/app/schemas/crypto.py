@@ -1,3 +1,4 @@
+from app.core.money import Currency
 from datetime import date as date_
 from datetime import datetime
 from decimal import Decimal
@@ -9,17 +10,19 @@ from app.models.enums import CryptoTransactionType, RiskLevel
 
 
 class CryptoTransactionCreate(BaseModel):
+    quote_currency: Currency | None = None
     type: CryptoTransactionType
     quantity: Decimal = Field(gt=0, max_digits=38, decimal_places=18)
     # Price paid (buy) / received (sell) per unit, in the app's display
     # currency — not fetched from CoinGecko, this is what the user actually
     # paid, which the market price today has nothing to do with.
-    price_per_unit: Decimal = Field(gt=0, max_digits=38, decimal_places=18)
+    price_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=38, decimal_places=18)
     date: date_
     note: str | None = Field(default=None, max_length=500)
 
 
 class CryptoTransactionUpdate(BaseModel):
+    quote_currency: Currency | None = None
     type: CryptoTransactionType | None = None
     quantity: Decimal | None = Field(default=None, gt=0, max_digits=38, decimal_places=18)
     price_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=38, decimal_places=18)
@@ -28,13 +31,14 @@ class CryptoTransactionUpdate(BaseModel):
 
 
 class CryptoTransactionRead(BaseModel):
+    quote_currency: str | None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     asset_id: int
     type: CryptoTransactionType
     quantity: Decimal
-    price_per_unit: Decimal
+    price_per_unit: Decimal | None
     date: date_
     note: str | None
 
@@ -58,6 +62,7 @@ class CryptoPortfolioRead(BaseModel):
 
 
 class CryptoHoldingCreate(BaseModel):
+    quote_currency: Currency | None = None
     # Which portfolio to file this coin under — omit to use the default
     # portfolio (the earliest-created one, auto-created if none exists yet;
     # see services/crypto_service.py's get_or_create_default_portfolio).
@@ -69,7 +74,7 @@ class CryptoHoldingCreate(BaseModel):
     # A holding always starts with a buy — there's nothing to "start
     # tracking" with a sell.
     quantity: Decimal = Field(gt=0, max_digits=38, decimal_places=18)
-    price_per_unit: Decimal = Field(gt=0, max_digits=38, decimal_places=18)
+    price_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=38, decimal_places=18)
     date: date_ = Field(default_factory=date_.today)
     note: str | None = Field(default=None, max_length=500)
     # Defaults to HIGH — crypto is this app's textbook HIGH example (see
@@ -91,6 +96,9 @@ class CryptoHoldingUpdate(BaseModel):
 
 
 class CryptoHoldingRead(BaseModel):
+    valuation_error: dict | None = None
+    currency: str
+    quote_currency: str
     asset_id: int
     portfolio_id: int
     coingecko_id: str
@@ -179,6 +187,8 @@ class CryptoHistoryPoint(BaseModel):
 
 
 class CryptoHistoryResponse(BaseModel):
+    fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
+    reporting_currency: str
     """Total crypto holdings value over time — same "cumulative point
     events, forward-filled" shape as NetWorthSummary's own series, but
     scoped to crypto-class assets only (see services/crypto_service.py's

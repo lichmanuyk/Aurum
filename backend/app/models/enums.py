@@ -21,6 +21,7 @@ class TransactionType(str, enum.Enum):
     INCOME = "income"
     EXPENSE = "expense"
     TRANSFER = "transfer"
+    ADJUSTMENT = "adjustment"
 
 
 class AssetClass(str, enum.Enum):
@@ -53,6 +54,7 @@ class RecurringFrequency(str, enum.Enum):
 
 
 class CryptoTransactionType(str, enum.Enum):
+    OPENING = "opening"
     BUY = "buy"
     SELL = "sell"
 

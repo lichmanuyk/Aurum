@@ -1,3 +1,7 @@
+from app.core.money import Currency, adjustment_rule_violation
+from typing import Literal
+
+AdjustmentReason = Literal["opening_balance", "reconciliation", "migration"]
 from datetime import date as date_
 from decimal import Decimal
 
@@ -59,8 +63,8 @@ def split_rule_violation(
     """
     if split_count == 0:
         return None
-    if type == TransactionType.TRANSFER:
-        return "splits are not valid for transfer transactions"
+    if type in (TransactionType.TRANSFER, TransactionType.ADJUSTMENT):
+        return "splits are not valid for transfers or adjustments"
     if category_id is not None:
         return "category_id must be omitted when splitting a transaction across categories"
     if split_count < 2:
@@ -79,11 +83,16 @@ class TransactionFields(BaseModel):
     refusing to serialize such a row would take the whole transactions list
     down with it, leaving no way in the UI to find and delete the row."""
 
+    destination_amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    reporting_amount_override: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    reporting_currency_override: Currency | None = None
+    reporting_override_source: str | None = Field(default=None, min_length=1, max_length=50)
     account_id: int
     category_id: int | None = None
     transfer_account_id: int | None = None
     type: TransactionType
-    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    adjustment_reason: AdjustmentReason | None = None
+    amount: Decimal = Field(max_digits=18, decimal_places=6)
     description: str = Field(min_length=1, max_length=255)
     merchant: str | None = Field(default=None, max_length=150)
     notes: str | None = Field(default=None, max_length=2000)
@@ -103,7 +112,7 @@ class TransactionBase(TransactionFields):
 
     @model_validator(mode="after")
     def _validate_type_specific_fields(self) -> "TransactionBase":
-        violation = transfer_rule_violation(
+        violation = adjustment_rule_violation(self.type, self.amount, self.adjustment_reason, self.category_id) or transfer_rule_violation(
             type=self.type,
             account_id=self.account_id,
             transfer_account_id=self.transfer_account_id,
@@ -116,7 +125,7 @@ class TransactionBase(TransactionFields):
 
 class TransactionSplitInput(BaseModel):
     category_id: int
-    amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
     note: str | None = Field(default=None, max_length=200)
 
 
@@ -145,11 +154,17 @@ class TransactionCreate(TransactionBase):
 
 
 class TransactionUpdate(BaseModel):
+    destination_amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    reporting_amount_override: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    reporting_currency_override: Currency | None = None
+    reporting_override_source: str | None = Field(default=None, min_length=1, max_length=50)
+
     account_id: int | None = None
     category_id: int | None = None
     transfer_account_id: int | None = None
     type: TransactionType | None = None
-    amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    adjustment_reason: AdjustmentReason | None = None
+    amount: Decimal | None = Field(default=None, max_digits=18, decimal_places=6)
     description: str | None = Field(default=None, min_length=1, max_length=255)
     merchant: str | None = Field(default=None, max_length=150)
     notes: str | None = Field(default=None, max_length=2000)
@@ -181,6 +196,7 @@ class TransactionRead(TransactionFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    transfer_account: AccountRead | None = None
     account: AccountRead
     category: CategoryRead | None = None
     tags: list[TagRead] = Field(default_factory=list)

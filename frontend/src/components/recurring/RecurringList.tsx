@@ -1,6 +1,6 @@
 import { ArrowLeftRight, CalendarCheck, Pencil, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency, getIntlLocale } from "@/lib/format";
+import { formatMoney, getIntlLocale } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { RecurringTransaction } from "@/types";
@@ -65,7 +65,7 @@ export function RecurringList({ items, onPost, onEdit, onDelete, isPosting }: Re
               }`}
             >
               {isTransfer ? "" : isExpense ? "-" : "+"}
-              {formatCurrency(item.amount)}
+              {formatMoney(item.amount, item.currency)}
             </span>
 
             <span className="flex shrink-0 gap-1">

@@ -1,3 +1,4 @@
+from app.core.money import Currency
 from datetime import date as date_
 from decimal import Decimal
 
@@ -5,12 +6,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class GoalCreate(BaseModel):
+    currency: Currency | None = None
     name: str = Field(min_length=1, max_length=150)
     target_amount: Decimal = Field(gt=0)
     target_date: date_ | None = None
 
 
 class GoalUpdate(BaseModel):
+    currency: Currency | None = None
     name: str | None = Field(default=None, min_length=1, max_length=150)
     target_amount: Decimal | None = Field(default=None, gt=0)
     target_date: date_ | None = None
@@ -35,6 +38,7 @@ class GoalContributionCreate(BaseModel):
 
 
 class GoalRead(BaseModel):
+    currency: str
     id: int
     name: str
     target_amount: Decimal

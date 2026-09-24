@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -14,7 +16,7 @@ interface AccountFormModalProps {
 
 const ACCOUNT_TYPES: AccountType[] = ["checking", "debit_card", "savings", "credit_card", "cash", "investment", "other"];
 
-const EMPTY_FORM = { name: "", type: "checking" as AccountType };
+const EMPTY_FORM = { currency: getCurrency(), name: "", type: "checking" as AccountType };
 
 export function AccountFormModal({ open, onClose, account }: AccountFormModalProps) {
   const { t } = useTranslation();
@@ -26,7 +28,7 @@ export function AccountFormModal({ open, onClose, account }: AccountFormModalPro
 
   useEffect(() => {
     if (!open) return;
-    setForm(account ? { name: account.name, type: account.type } : EMPTY_FORM);
+    setForm(account ? { currency: account.currency, name: account.name, type: account.type } : { ...EMPTY_FORM, currency: getCurrency() });
     setError(null);
   }, [open, account]);
 
@@ -51,6 +53,7 @@ export function AccountFormModal({ open, onClose, account }: AccountFormModalPro
   return (
     <Dialog open={open} onClose={onClose} title={account ? t("account.form.editTitle") : t("account.form.newTitle")}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        <CurrencySelect value={form.currency} disabled={Boolean(account)} onChange={currency => setForm(prev => ({ ...prev, currency }))} />
         <div>
           <Label htmlFor="account-name">{t("account.form.nameLabel")}</Label>
           <Input

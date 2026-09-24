@@ -235,8 +235,9 @@ async def test_coingecko_outage_keeps_last_known_value_instead_of_failing(client
     assert money(body["holdings"][0]["value"]) == money("25000")  # unchanged from creation
 
 
-async def test_create_rejects_when_no_api_key_configured(client: AsyncClient, monkeypatch):
+async def test_create_works_without_api_key_when_public_provider_available(client: AsyncClient, monkeypatch):
     monkeypatch.setattr(crypto_service.get_settings(), "coingecko_api_key", "")
+    monkeypatch.setattr(crypto_service, "_fetch_market_data", _fake_fetch({"bitcoin": _point("50000")}))
 
     resp = await client.post(
         "/crypto/holdings",
@@ -250,7 +251,8 @@ async def test_create_rejects_when_no_api_key_configured(client: AsyncClient, mo
         },
     )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 201
+    assert money(resp.json()["value"]) == money("25000")
 
 
 async def test_backup_roundtrip_preserves_holding_and_transaction_log(client: AsyncClient, monkeypatch):

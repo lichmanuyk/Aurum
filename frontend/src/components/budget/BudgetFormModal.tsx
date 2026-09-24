@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -23,6 +25,7 @@ export function BudgetFormModal({ open, onClose, budget, excludeCategoryIds }: B
   const createBudget = useCreateBudget();
   const updateBudget = useUpdateBudget();
 
+  const [currency, setCurrency] = useState(getCurrency());
   const [categoryId, setCategoryId] = useState("");
   const [monthlyLimit, setMonthlyLimit] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +36,7 @@ export function BudgetFormModal({ open, onClose, budget, excludeCategoryIds }: B
 
   useEffect(() => {
     if (!open) return;
+    setCurrency(budget?.currency ?? getCurrency());
     if (budget) {
       setCategoryId(String(budget.category_id));
       setMonthlyLimit(budget.monthly_limit);
@@ -55,7 +59,7 @@ export function BudgetFormModal({ open, onClose, budget, excludeCategoryIds }: B
       if (budget) {
         await updateBudget.mutateAsync({ id: budget.id, monthlyLimit });
       } else {
-        await createBudget.mutateAsync({ category_id: Number(categoryId), monthly_limit: monthlyLimit });
+        await createBudget.mutateAsync({ currency, category_id: Number(categoryId), monthly_limit: monthlyLimit });
       }
       onClose();
     } catch {
@@ -66,6 +70,7 @@ export function BudgetFormModal({ open, onClose, budget, excludeCategoryIds }: B
   return (
     <Dialog open={open} onClose={onClose} title={budget ? t("budget.form.editTitle") : t("budget.form.newTitle")}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        <CurrencySelect value={currency} disabled={Boolean(budget)} onChange={setCurrency} />
         <div>
           <Label htmlFor="budget-category">{t("budget.form.categoryLabel")}</Label>
           {budget ? (

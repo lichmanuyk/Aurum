@@ -63,7 +63,7 @@ export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetW
         <div>
           <CardTitle>{t("nav.netWorth")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">
-            {isLoading ? "…" : formatCurrency(summary?.current ?? 0)}
+            {isLoading ? "…" : formatCurrency(summary?.current ?? 0, summary?.reporting_currency)}
           </p>
           {summary && (
             <p
@@ -71,7 +71,7 @@ export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetW
               style={{ color: trendColor }}
             >
               {isPositive ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
-              {formatSignedCurrency(summary.change_amount)}
+              {formatSignedCurrency(summary.change_amount, summary.reporting_currency)}
               {summary.change_percent !== null && ` (${isPositive ? "+" : ""}${summary.change_percent.toFixed(1)}%)`}
               <span className="font-normal text-text-muted">{t("netWorth.periodSuffix")}</span>
             </p>

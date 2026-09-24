@@ -28,7 +28,11 @@ async def test_debit_card_is_a_liquid_account_type(client: AsyncClient, categori
     )
     assert transaction.status_code == 201
 
+    # Explicit historical FX replaces the former RUB == USD assumption.
+    await client.patch("/settings", json={"currency": "USD"})
+    rate = await client.post("/fx-rates/bulk", json={"items": [{"base_currency": "RUB", "quote_currency": "USD", "rate_date": date.today().isoformat(), "rate": "0.01"}]})
+    assert rate.status_code == 200
     summary = await client.get("/net-worth/summary", params={"range": "all"})
 
     assert summary.status_code == 200
-    assert money(summary.json()["current"]) == money("1000.00")
+    assert money(summary.json()["current"]) == money("10.00")

@@ -1,18 +1,22 @@
+from app.core.money import Currency
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
 
 class BudgetCreate(BaseModel):
+    currency: Currency | None = None
     category_id: int
     monthly_limit: Decimal = Field(gt=0)
 
 
 class BudgetUpdate(BaseModel):
+    currency: Currency | None = None
     monthly_limit: Decimal = Field(gt=0)
 
 
 class BudgetRead(BaseModel):
+    currency: str
     id: int
     category_id: int
     category_name: str
@@ -22,6 +26,7 @@ class BudgetRead(BaseModel):
 
 
 class BudgetStatus(BaseModel):
+    currency: str
     """One budgeted category's actual spend for a given month, compared
     against its limit."""
 

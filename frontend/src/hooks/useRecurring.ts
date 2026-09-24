@@ -14,7 +14,8 @@ function useInvalidateRecurring() {
     queryClient.invalidateQueries({ queryKey: ["recurring"] });
     if (alsoInvalidateTransactions) {
       // Posting creates a real Transaction — refresh everything derived from it.
-      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
       queryClient.invalidateQueries({ queryKey: ["net-worth-summary"] });
       queryClient.invalidateQueries({ queryKey: ["category-spending-report"] });
@@ -59,7 +60,7 @@ export function useDeleteRecurring() {
 export function usePostRecurring() {
   const invalidate = useInvalidateRecurring();
   return useMutation({
-    mutationFn: (id: number) => postRecurring(id),
+    mutationFn: ({ id, destination_amount }: { id: number; destination_amount?: string }) => postRecurring(id, destination_amount),
     onSuccess: () => invalidate(true),
   });
 }

@@ -20,7 +20,7 @@ import {
 import {
   AMOUNT_FORMATS,
   DATE_FORMATS,
-  parseAmount,
+  parseDecimalAmount,
   parseCsv,
   parseDateWithFormat,
   transactionDedupeKey,
@@ -256,13 +256,19 @@ export function CsvImportPage() {
         return;
       }
 
+      const currencyIdx = headers.findIndex(h => /^(currency|валюта)$/i.test(h.trim()));
+      const nativeCurrency = accounts?.find(a => a.id === Number(accountId))?.currency;
+      if (currencyIdx >= 0 && cells[currencyIdx]?.trim().toUpperCase() !== nativeCurrency) {
+        skippedRows.push({ row: rowNumber, reason: `Currency must match account (${nativeCurrency})` });
+        return;
+      }
       const isoDate = parseDateWithFormat(rawDate, dateFormat);
       if (!isoDate) {
         skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorBadDate", { value: rawDate || "—" }) });
         return;
       }
-      const amount = parseAmount(rawAmount, amountFormat);
-      if (amount === null || amount === 0) {
+      const amount = parseDecimalAmount(rawAmount, amountFormat);
+      if (amount === null || /^-?0\.00$/.test(amount)) {
         skippedRows.push({ row: rowNumber, reason: t("transactions.import.errorBadAmount", { value: rawAmount || "—" }) });
         return;
       }
@@ -272,7 +278,7 @@ export function CsvImportPage() {
         return;
       }
 
-      const type = resolveType(amount);
+      const type = resolveType(Number(amount));
       const categoryId = rawCategory ? categoryLookup[type].get(rawCategory.toLowerCase()) ?? null : null;
 
       const candidate: TransactionInput = {
@@ -280,7 +286,7 @@ export function CsvImportPage() {
         category_id: categoryId,
         transfer_account_id: null,
         type,
-        amount: Math.abs(amount).toFixed(2),
+        amount: amount.replace(/^-/, ""),
         description,
         merchant: rawMerchant || null,
         notes: rawNotes || null,
@@ -301,7 +307,7 @@ export function CsvImportPage() {
       duplicateCount: duplicateRows.length,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, headers, dataRows, mapping, dateFormat, amountFormat, categoryLookup, accountId, existingKeys, includeDuplicates, activePreset, t]);
+  }, [step, headers, dataRows, mapping, dateFormat, amountFormat, categoryLookup, accountId, accounts, existingKeys, includeDuplicates, activePreset, t]);
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -669,7 +675,7 @@ export function CsvImportPage() {
                               }`}
                             >
                               {item.type === "expense" ? "-" : "+"}
-                              {formatCurrency(item.amount)}
+                              {formatCurrency(item.amount, accounts?.find(a => a.id === Number(accountId))?.currency)}
                             </td>
                           </tr>
                         ))}

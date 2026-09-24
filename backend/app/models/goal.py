@@ -14,6 +14,7 @@ class Goal(Base, TimestampMixin):
     __tablename__ = "goals"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     target_amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
     target_date: Mapped[date_ | None] = mapped_column(Date, nullable=True)

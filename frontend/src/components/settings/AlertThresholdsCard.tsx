@@ -123,7 +123,7 @@ export function AlertThresholdsCard() {
             />
           </div>
           <div>
-            <Label htmlFor="idle-cash-amount-threshold">{t("settings.idleCashThresholdAmountLabel")}</Label>
+            <Label htmlFor="idle-cash-amount-threshold">{t("settings.idleCashThresholdAmountLabel")} ({settings?.idle_cash_threshold_currency})</Label>
             <Input
               id="idle-cash-amount-threshold"
               type="number"

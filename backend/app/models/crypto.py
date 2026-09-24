@@ -124,7 +124,8 @@ class CryptoTransaction(Base, TimestampMixin):
     # Price paid (buy) or received (sell) per unit, in the app's display
     # currency at the time of the transaction — not re-derived later, since
     # what you actually paid doesn't change with today's market price.
-    price_per_unit: Mapped[Numeric] = mapped_column(Numeric(38, 18), nullable=False)
+    quote_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    price_per_unit: Mapped[Numeric | None] = mapped_column(Numeric(38, 18), nullable=True)
     date: Mapped[date_] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 

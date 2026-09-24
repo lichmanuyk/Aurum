@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -11,7 +12,7 @@ import type { Account, AccountWithBalance } from "@/types";
 export function AccountsPage() {
   const { t } = useTranslation();
   const [showArchived, setShowArchived] = useState(false);
-  const { data: accounts, isLoading } = useAccounts(showArchived);
+  const { data: accounts, isLoading, error } = useAccounts(showArchived);
   const updateAccount = useUpdateAccount();
   const deleteAccount = useDeleteAccount();
 
@@ -40,6 +41,7 @@ export function AccountsPage() {
 
   return (
     <div className="space-y-5">
+      <MoneyError error={error ?? deleteAccount.error ?? updateAccount.error} />
       <Card>
         <CardHeader>
           <CardTitle>{t("nav.accounts")}</CardTitle>

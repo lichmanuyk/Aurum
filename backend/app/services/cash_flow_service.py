@@ -3,6 +3,9 @@ Dashboard (locked to one month) nor Reports (one category at a time, or a
 category ranking) answers on its own. Transfers between the user's own
 accounts are excluded from both totals, same as the Dashboard breakdown.
 """
+
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
 from collections import defaultdict
 from datetime import date as date_
 from decimal import Decimal
@@ -22,8 +25,9 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
 async def get_cash_flow(
     session: AsyncSession, start_date: date_ | None, end_date: date_ | None
 ) -> CashFlowResponse:
+    fx = await FXConverter.load(session)
     bounds_stmt = select(func.min(Transaction.date), func.max(Transaction.date)).where(
-        Transaction.type != TransactionType.TRANSFER
+        Transaction.type.in_([TransactionType.INCOME, TransactionType.EXPENSE])
     )
     if start_date:
         bounds_stmt = bounds_stmt.where(Transaction.date >= start_date)
@@ -35,6 +39,8 @@ async def get_cash_flow(
     effective_end = end_date or max_date
 
     empty = CashFlowResponse(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         start_date=effective_start,
         end_date=effective_end,
         points=[],
@@ -45,25 +51,10 @@ async def get_cash_flow(
     if effective_start is None or effective_end is None:
         return empty
 
-    rows_stmt = (
-        select(
-            extract("year", Transaction.date).label("year"),
-            extract("month", Transaction.date).label("month"),
-            Transaction.type,
-            func.sum(Transaction.amount).label("amount"),
-        )
-        .where(
-            Transaction.type != TransactionType.TRANSFER,
-            Transaction.date >= effective_start,
-            Transaction.date <= effective_end,
-        )
-        .group_by("year", "month", Transaction.type)
-    )
-    rows = (await session.execute(rows_stmt)).all()
-
-    by_month: dict[tuple[int, int], dict[TransactionType, Decimal]] = defaultdict(dict)
-    for year, month, tx_type, amount in rows:
-        by_month[(int(year), int(month))][tx_type] = amount
+    by_month = defaultdict(lambda: defaultdict(Decimal))
+    for tx in await transactions_for_reporting(session, effective_start, effective_end):
+        if tx.type in (TransactionType.INCOME, TransactionType.EXPENSE):
+            by_month[(tx.date.year, tx.date.month)][tx.type] += fx.transaction(tx)
 
     points: list[CashFlowPoint] = []
     year, month = effective_start.year, effective_start.month
@@ -78,6 +69,8 @@ async def get_cash_flow(
     total_expense = sum((p.expense for p in points), Decimal("0"))
 
     return CashFlowResponse(
+        fx_rates_used=fx.metadata(),
+        reporting_currency=fx.currency,
         start_date=effective_start,
         end_date=effective_end,
         points=points,

@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
@@ -28,11 +29,12 @@ export function DashboardPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const { data: years } = useTransactionYears();
 
-  const { data, isLoading, isError } = useDashboardSummary(year, month);
+  const { data, isLoading, isError, error } = useDashboardSummary(year, month);
   const rate = data ? savingsRate(Number(data.real_income), Number(data.net)) : null;
 
   return (
     <div className="space-y-5">
+      <MoneyError error={error} />
       <AlertBanner excludeKeys={["risky_allocation_exceeded"]} />
 
       <div className="flex items-center gap-3">
@@ -51,25 +53,25 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label={t("dashboard.statRealIncomeLabel")}
-          value={isLoading ? "…" : formatCurrency(data?.real_income ?? 0)}
+          value={isError ? "—" : isLoading ? "…" : formatCurrency(data?.real_income ?? 0, data?.reporting_currency)}
           caption={t("dashboard.statRealIncomeCaption")}
           tone="success"
         />
         <StatCard
           label={t("dashboard.statSpentLabel")}
-          value={isLoading ? "…" : formatCurrency(data?.spent ?? 0)}
+          value={isError ? "—" : isLoading ? "…" : formatCurrency(data?.spent ?? 0, data?.reporting_currency)}
           caption={t("dashboard.statSpentCaption")}
           tone="danger"
         />
         <StatCard
           label={t("dashboard.statNetLabel")}
-          value={isLoading ? "…" : formatSignedCurrency(data?.net ?? 0)}
+          value={isError ? "—" : isLoading ? "…" : formatSignedCurrency(data?.net ?? 0, data?.reporting_currency)}
           caption={t("dashboard.statNetCaption")}
           tone={Number(data?.net ?? 0) >= 0 ? "success" : "danger"}
         />
         <StatCard
           label={t("dashboard.statSavingsRateLabel")}
-          value={isLoading ? "…" : rate === null ? "—" : formatPercent(rate)}
+          value={isError ? "—" : isLoading ? "…" : rate === null ? "—" : formatPercent(rate)}
           caption={t("dashboard.statSavingsRateCaption")}
           tone={rate === null ? "default" : rate >= 0 ? "success" : "danger"}
         />

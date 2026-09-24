@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +23,7 @@ function todayIso() {
 }
 
 const EMPTY_FORM = {
+  currency: getCurrency(),
   name: "",
   asset_class: "investments" as AssetClass,
   value: "",
@@ -44,6 +47,7 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
     if (!open) return;
     if (asset) {
       setForm({
+        currency: asset.currency,
         name: asset.name,
         asset_class: asset.asset_class,
         value: asset.current_value,
@@ -54,7 +58,7 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
         risk_level: asset.risk_level,
       });
     } else {
-      setForm(EMPTY_FORM);
+      setForm({ ...EMPTY_FORM, currency: getCurrency() });
     }
     setError(null);
   }, [open, asset]);
@@ -70,7 +74,8 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
         await updateAsset.mutateAsync({
           id: asset.id,
           input: {
-            name: form.name,
+            currency: form.currency,
+      name: form.name,
             asset_class: form.asset_class,
             notes: form.notes || null,
             capital_role: form.capital_role,
@@ -83,7 +88,8 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
         }
       } else {
         await createAsset.mutateAsync({
-          name: form.name,
+          currency: form.currency,
+      name: form.name,
           asset_class: form.asset_class,
           value: form.value,
           as_of_date: form.as_of_date,
@@ -102,6 +108,7 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
   return (
     <Dialog open={open} onClose={onClose} title={asset ? t("netWorth.form.editTitle") : t("netWorth.form.newTitle")}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        <CurrencySelect value={form.currency} disabled={Boolean(asset)} onChange={currency => setForm(prev => ({ ...prev, currency }))} />
         <div>
           <Label htmlFor="asset-name">{t("netWorth.form.nameLabel")}</Label>
           <Input

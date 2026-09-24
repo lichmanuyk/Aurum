@@ -53,7 +53,7 @@ export function GoalContributionModal({ open, onClose, goal }: GoalContributionM
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="contribution-amount">{t("goal.contribution.amountLabel")}</Label>
+            <Label htmlFor="contribution-amount">{t("goal.contribution.amountLabel")} ({goal?.currency})</Label>
             <Input
               id="contribution-amount"
               type="number"

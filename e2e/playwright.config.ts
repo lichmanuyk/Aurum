@@ -12,6 +12,7 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
+    storageState: { cookies: [], origins: [{ origin: new URL(baseURL).origin, localStorage: [{ name: "aurum:noAuthAcknowledged", value: "1" }] }] },
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

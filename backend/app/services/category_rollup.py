@@ -12,6 +12,9 @@ splits' category_ids) and combines them before rolling up, so a category
 funded partly by plain transactions and partly by split lines still shows
 one correct total.
 """
+
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date as date_
@@ -73,24 +76,12 @@ async def _raw_category_contributions(
     per split line — never both for the same transaction, since a
     transaction is either plain (category_id set, no splits) or split
     (category_id NULL, 2+ splits), enforced at write time."""
-    plain_stmt = select(Transaction.id, Transaction.category_id, Transaction.amount).where(
-        Transaction.type == transaction_type, Transaction.category_id.is_not(None)
-    )
-    split_stmt = (
-        select(TransactionSplit.transaction_id, TransactionSplit.category_id, TransactionSplit.amount)
-        .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
-        .where(Transaction.type == transaction_type, TransactionSplit.category_id.is_not(None))
-    )
-    if start_date is not None:
-        plain_stmt = plain_stmt.where(Transaction.date >= start_date)
-        split_stmt = split_stmt.where(Transaction.date >= start_date)
-    if end_date is not None:
-        plain_stmt = plain_stmt.where(Transaction.date <= end_date)
-        split_stmt = split_stmt.where(Transaction.date <= end_date)
-
-    plain_rows = (await session.execute(plain_stmt)).all()
-    split_rows = (await session.execute(split_stmt)).all()
-    return [(r[0], r[1], r[2]) for r in plain_rows] + [(r[0], r[1], r[2]) for r in split_rows]
+    fx = await FXConverter.load(session)
+    contributions = []
+    for tx in await transactions_for_reporting(session, start_date, end_date, transaction_type):
+        lines = fx.splits(tx) if tx.splits else [(tx.category_id, fx.transaction(tx))]
+        contributions.extend((tx.id, category_id, amount) for category_id, amount in lines if category_id is not None)
+    return contributions
 
 
 async def rollup_spending_by_top_level_category(

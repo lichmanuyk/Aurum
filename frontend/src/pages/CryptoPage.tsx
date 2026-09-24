@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useMemo, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -41,8 +42,8 @@ export function CryptoPage() {
   // null = "All portfolios" tab.
   const [portfolioFilter, setPortfolioFilter] = useState<number | null>(null);
   const { data: portfolios } = useCryptoPortfolios();
-  const { data, isLoading } = useCryptoHoldings(portfolioFilter);
-  const { data: history, isLoading: isHistoryLoading } = useCryptoHistory(range, portfolioFilter);
+  const { data, isLoading, error } = useCryptoHoldings(portfolioFilter);
+  const { data: history, isLoading: isHistoryLoading, error: historyError } = useCryptoHistory(range, portfolioFilter);
   const { data: performance90d, isLoading: isPerformance90dLoading } = useCrypto90dPerformance(range, portfolioFilter);
   const refresh = useRefreshCryptoPrices();
   const deleteHolding = useDeleteCryptoHolding();
@@ -110,6 +111,7 @@ export function CryptoPage() {
 
   return (
     <div className="space-y-5">
+      <MoneyError error={error ?? historyError ?? (data?.holdings.some(h => h.valuation_error) ? new Error("FX: проверьте исторические курсы / Check historical exchange rates") : null)} />
       <CryptoPortfolioTabs
         portfolios={portfolios ?? []}
         activeId={portfolioFilter}
@@ -118,6 +120,7 @@ export function CryptoPage() {
         onEdit={openEditPortfolioModal}
       />
 
+      {!error && !historyError && !holdings.some(h => h.valuation_error) && <>
       <CryptoOverviewCard
         totalValue={totalValue}
         history={history}
@@ -139,6 +142,7 @@ export function CryptoPage() {
         isPerformance90dLoading={isPerformance90dLoading}
       />
 
+      </>}
       <Card>
         <CardHeader className="flex-col items-stretch gap-3 sm:flex-row sm:items-center">
           <div>

@@ -92,5 +92,5 @@ async def seed_default_app_settings(session: AsyncSession) -> None:
     if existing is not None:
         return
 
-    session.add(AppSettings(id=1, currency=get_settings().default_currency))
+    session.add(AppSettings(id=1, currency=get_settings().default_currency, idle_cash_threshold_currency=get_settings().default_currency))
     await session.commit()

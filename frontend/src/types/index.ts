@@ -1,6 +1,7 @@
 export type AccountType = "checking" | "debit_card" | "savings" | "credit_card" | "cash" | "investment" | "other";
 export type CategoryKind = "income" | "expense";
-export type TransactionType = "income" | "expense" | "transfer";
+export type TransactionType = "income" | "expense" | "transfer" | "adjustment";
+export type AdjustmentReason = "opening_balance" | "reconciliation" | "migration";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 
 export interface Account {
@@ -22,6 +23,7 @@ export interface AccountWithBalance extends Account {
 }
 
 export interface AccountInput {
+  currency?: string;
   name: string;
   type: AccountType;
 }
@@ -82,6 +84,11 @@ export interface TransactionSplitInput {
 }
 
 export interface Transaction {
+  adjustment_reason?: AdjustmentReason | null;
+  destination_amount?: string | null;
+  reporting_amount_override?: string | null;
+  reporting_currency_override?: string | null;
+  reporting_override_source?: string | null;
   id: number;
   account_id: number;
   category_id: number | null;
@@ -93,6 +100,7 @@ export interface Transaction {
   notes: string | null;
   date: string;
   account: Account;
+  transfer_account: Account | null;
   category: Category | null;
   tags: Tag[];
   splits: TransactionSplit[];
@@ -106,6 +114,11 @@ export interface TransactionPage {
 }
 
 export interface TransactionInput {
+  adjustment_reason?: AdjustmentReason | null;
+  destination_amount?: string | null;
+  reporting_amount_override?: string | null;
+  reporting_currency_override?: string | null;
+  reporting_override_source?: string | null;
   account_id: number;
   category_id: number | null;
   transfer_account_id: number | null;
@@ -126,6 +139,8 @@ export interface TransactionInput {
 }
 
 export interface RecurringTransaction {
+  destination_currency: string | null;
+  currency: string;
   id: number;
   account_id: number;
   account_name: string;
@@ -184,6 +199,7 @@ export interface CategoryBreakdownItem {
 }
 
 export interface DashboardSummary {
+  reporting_currency: string;
   year: number;
   month: number;
   real_income: string;
@@ -224,6 +240,7 @@ export interface AssetInput {
 }
 
 export interface AssetUpdateInput {
+  currency?: string;
   name?: string;
   asset_class?: AssetClass;
   notes?: string | null;
@@ -277,6 +294,7 @@ export interface RiskLevelSummary {
 }
 
 export interface NetWorthSummary {
+  reporting_currency: string;
   range: NetWorthRange;
   current: string;
   change_amount: string;
@@ -294,6 +312,7 @@ export interface CategorySpendingPoint {
 }
 
 export interface CategorySpendingReport {
+  reporting_currency: string;
   category_id: number;
   category_name: string;
   category_color: string;
@@ -315,6 +334,7 @@ export interface CashFlowPoint {
 }
 
 export interface CashFlowResponse {
+  reporting_currency: string;
   start_date: string | null;
   end_date: string | null;
   points: CashFlowPoint[];
@@ -343,6 +363,7 @@ export interface CategoryRankingItem {
 }
 
 export interface CategoryRankingReport {
+  reporting_currency: string;
   start_date: string | null;
   end_date: string | null;
   total_amount: string;
@@ -350,6 +371,7 @@ export interface CategoryRankingReport {
 }
 
 export interface Goal {
+  currency: string;
   id: number;
   name: string;
   target_amount: string;
@@ -361,6 +383,7 @@ export interface Goal {
 }
 
 export interface GoalInput {
+  currency?: string;
   name: string;
   target_amount: string;
   target_date: string | null;
@@ -373,6 +396,7 @@ export interface GoalContributionInput {
 }
 
 export interface Budget {
+  currency: string;
   id: number;
   category_id: number;
   category_name: string;
@@ -382,11 +406,13 @@ export interface Budget {
 }
 
 export interface BudgetInput {
+  currency?: string;
   category_id: number;
   monthly_limit: string;
 }
 
 export interface BudgetStatus {
+  currency: string;
   budget_id: number;
   category_id: number;
   category_name: string;
@@ -421,7 +447,7 @@ export interface FinancialAlert {
   params: Record<string, number>;
 }
 
-export type CryptoTransactionType = "buy" | "sell";
+export type CryptoTransactionType = "buy" | "sell" | "opening";
 
 export interface CryptoPortfolio {
   id: number;
@@ -436,6 +462,9 @@ export interface CryptoPortfolioInput {
 }
 
 export interface CryptoHolding {
+  valuation_error?: Record<string, unknown> | null;
+  currency: string;
+  quote_currency: string;
   asset_id: number;
   portfolio_id: number;
   coingecko_id: string;
@@ -472,6 +501,7 @@ export interface CryptoHolding {
 }
 
 export interface CryptoHoldingCreateInput {
+  quote_currency?: string | null;
   // Omit to file the coin under the default portfolio (auto-created if
   // none exists yet — see services/crypto_service.py's
   // get_or_create_default_portfolio).
@@ -482,7 +512,7 @@ export interface CryptoHoldingCreateInput {
   thumb_url?: string | null;
   // A holding always starts with its first buy.
   quantity: string;
-  price_per_unit: string;
+  price_per_unit: string | null;
   date: string;
   note?: string | null;
   // Omit to default to "high" server-side — crypto's own textbook risk
@@ -497,19 +527,21 @@ export interface CryptoHoldingUpdateInput {
 }
 
 export interface CryptoTransaction {
+  quote_currency?: string | null;
   id: number;
   asset_id: number;
   type: CryptoTransactionType;
   quantity: string;
-  price_per_unit: string;
+  price_per_unit: string | null;
   date: string;
   note: string | null;
 }
 
 export interface CryptoTransactionInput {
+  quote_currency?: string | null;
   type: CryptoTransactionType;
   quantity: string;
-  price_per_unit: string;
+  price_per_unit: string | null;
   date: string;
   note?: string | null;
 }
@@ -551,6 +583,7 @@ export interface CryptoHistoryPoint {
 }
 
 export interface CryptoHistoryResponse {
+  reporting_currency: string;
   range: CryptoRange;
   current: string;
   change_amount: string;
@@ -559,6 +592,7 @@ export interface CryptoHistoryResponse {
 }
 
 export interface AppSettings {
+  idle_cash_threshold_currency: string;
   currency: string;
   negative_cash_flow_threshold_months: number;
   net_worth_decline_threshold_months: number;

@@ -2,6 +2,11 @@
 get_budget_status(), which compares each limit against actual spend for a
 given month — the data behind the Budget page's progress bars and the
 budget_exceeded proactive alert (services/insights_service.py)."""
+
+from app.core.money import require_money
+from app.services.fx_service import FXConverter
+from app.services.money_service import transactions_for_reporting
+from app.services.settings_service import get_or_create_app_settings
 import calendar
 from collections import defaultdict
 from datetime import date
@@ -42,7 +47,8 @@ async def create_budget(session: AsyncSession, payload: BudgetCreate) -> Budget:
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=400, detail=f"'{category.name}' already has a budget")
 
-    budget = Budget(category_id=payload.category_id, monthly_limit=payload.monthly_limit)
+    budget = Budget(currency=payload.currency or (await get_or_create_app_settings(session)).currency, category_id=payload.category_id, monthly_limit=payload.monthly_limit)
+    require_money(budget.monthly_limit, budget.currency)
     session.add(budget)
     await session.commit()
     refreshed = await session.execute(select(Budget).options(*_EAGER).where(Budget.id == budget.id))
@@ -53,6 +59,9 @@ async def update_budget(session: AsyncSession, budget_id: int, payload: BudgetUp
     budget = await session.get(Budget, budget_id)
     if budget is None:
         raise HTTPException(status_code=404, detail="Budget not found")
+    if "currency" in payload.model_fields_set and payload.currency != budget.currency:
+        raise HTTPException(409, "Currency is fixed; create a new budget instead")
+    require_money(payload.monthly_limit, budget.currency)
     budget.monthly_limit = payload.monthly_limit
     await session.commit()
     refreshed = await session.execute(select(Budget).options(*_EAGER).where(Budget.id == budget_id))
@@ -96,35 +105,24 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
     # lives on its split lines instead (see category_rollup.py), so a plain
     # sum on Transaction.category_id alone would silently under-count a
     # budget funded partly by split purchases.
-    plain_stmt = (
-        select(Transaction.category_id, func.coalesce(func.sum(Transaction.amount), 0))
-        .where(
-            Transaction.category_id.in_(counted_ids),
-            Transaction.type == TransactionType.EXPENSE,
-            Transaction.date >= start,
-            Transaction.date <= end,
-        )
-        .group_by(Transaction.category_id)
-    )
-    split_stmt = (
-        select(TransactionSplit.category_id, func.coalesce(func.sum(TransactionSplit.amount), 0))
-        .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
-        .where(
-            TransactionSplit.category_id.in_(counted_ids),
-            Transaction.type == TransactionType.EXPENSE,
-            Transaction.date >= start,
-            Transaction.date <= end,
-        )
-        .group_by(TransactionSplit.category_id)
-    )
-    spent_by_category: dict[int, Decimal] = defaultdict(Decimal)
-    for category_id, amount in (await session.execute(plain_stmt)).all():
-        spent_by_category[category_id] += amount
-    for category_id, amount in (await session.execute(split_stmt)).all():
-        spent_by_category[category_id] += amount
+    fx = await FXConverter.load(session)
+    rows = await transactions_for_reporting(session, start, end, TransactionType.EXPENSE)
+    spent_by_currency = {}
+    for currency in {b.currency for b in budgets}:
+        currency_ids = {b.category_id for b in budgets if b.currency == currency}
+        counted_ids = currency_ids.union(child for parent in currency_ids for child in children_by_parent[parent])
+        totals = defaultdict(Decimal)
+        for tx in rows:
+            if tx.category_id not in counted_ids and not any(line.category_id in counted_ids for line in tx.splits):
+                continue
+            lines = fx.splits(tx, currency) if tx.splits else [(tx.category_id, fx.transaction(tx, currency))]
+            for category_id, amount in lines:
+                totals[category_id] += amount
+        spent_by_currency[currency] = totals
 
     items = []
     for budget in budgets:
+        spent_by_category = spent_by_currency[budget.currency]
         spent = spent_by_category.get(budget.category_id, Decimal("0")) + sum(
             (spent_by_category.get(child_id, Decimal("0")) for child_id in children_by_parent[budget.category_id]),
             Decimal("0"),
@@ -133,6 +131,7 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
         items.append(
             BudgetStatus(
                 budget_id=budget.id,
+                currency=budget.currency,
                 category_id=budget.category_id,
                 category_name=budget.category.name,
                 category_color=budget.category.color,

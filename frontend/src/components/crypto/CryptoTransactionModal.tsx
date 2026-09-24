@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/Button";
@@ -24,12 +26,13 @@ interface CryptoTransactionModalProps {
  * services/crypto_service.py's add_transaction/update_transaction): value
  * is recomputed from the last cached price. */
 export function CryptoTransactionModal({ open, onClose, holding, transaction = null }: CryptoTransactionModalProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const addTransaction = useAddCryptoTransaction();
   const updateTransaction = useUpdateCryptoTransaction();
   const isEditing = transaction !== null;
 
   const [type, setType] = useState<CryptoTransactionType>("buy");
+  const [quoteCurrency, setQuoteCurrency] = useState(getCurrency());
   const [quantity, setQuantity] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -38,13 +41,14 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
 
   useEffect(() => {
     if (!open) return;
+    setQuoteCurrency(transaction?.quote_currency ?? holding?.quote_currency ?? getCurrency());
     if (transaction) {
       setType(transaction.type);
       // The API returns these at full Numeric(38,18) scale (e.g.
       // "3.000000000000000000") — trimmed here so the field shows what was
       // actually entered, not a wall of padding zeros.
       setQuantity(trimTrailingZeros(transaction.quantity));
-      setPricePerUnit(trimTrailingZeros(transaction.price_per_unit));
+      setPricePerUnit(transaction.price_per_unit === null ? "" : trimTrailingZeros(transaction.price_per_unit));
       setDate(transaction.date);
       setNote(transaction.note ?? "");
     } else {
@@ -61,7 +65,7 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
     event.preventDefault();
     if (!holding) return;
     setError(null);
-    const input = { type, quantity, price_per_unit: pricePerUnit, date, note: note || null };
+    const input = { type, quantity, quote_currency: quoteCurrency, price_per_unit: type === "opening" ? null : pricePerUnit, date, note: note || null };
     try {
       if (transaction) {
         await updateTransaction.mutateAsync({ transactionId: transaction.id, input });
@@ -87,7 +91,9 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
       title={isEditing ? t("crypto.form.editTradeTitle", { name: holding.name }) : t("crypto.form.tradeTitle", { name: holding.name })}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
+        <CurrencySelect value={quoteCurrency} onChange={setQuoteCurrency} />
+        <div className="grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => setType("opening")} className="rounded-lg border px-3 py-2 text-sm">{language === "ru" ? "Остаток" : "Opening"}{type === "opening" ? " ✓" : ""}</button>
           <button
             type="button"
             onClick={() => setType("buy")}
@@ -132,6 +138,7 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
               step="any"
               min="0"
               required
+              disabled={type === "opening"}
               value={pricePerUnit}
               onChange={(event) => setPricePerUnit(event.target.value)}
             />

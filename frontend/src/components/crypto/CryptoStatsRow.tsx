@@ -132,7 +132,7 @@ function PerformerTile({
         {percent >= 0 ? "+" : ""}
         {percent.toFixed(2)}%
       </p>
-      <p className="mt-0.5 text-xs text-text-muted">{t("crypto.stats.changeLabel", { range: rangeLabel })}</p>
+      <p className="mt-0.5 text-xs text-text-muted">{t("crypto.stats.changeLabel", { range: rangeLabel })} · {holding.quote_currency}</p>
     </StatTile>
   );
 }
@@ -145,7 +145,7 @@ export function CryptoStatsRow({
   performance90d,
   isPerformance90dLoading,
 }: CryptoStatsRowProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   if (isLoading) {
     return <p className="py-4 text-center text-sm text-text-muted">{t("common.loading")}</p>;
@@ -153,6 +153,7 @@ export function CryptoStatsRow({
   if (holdings.length === 0) return null;
 
   const totals = computeTotals(holdings, range, performance90d);
+  const unknownCost = holdings.some(h => Number(h.quantity) > 0 && h.cost_basis === null);
   const profitColor = totals.totalProfitLoss >= 0 ? "var(--success)" : "var(--danger)";
   const rangeLabel = range === "all" ? t("common.allShort") : RANGE_LABELS[range];
   const performerLoading = range === "90d" && isPerformance90dLoading;
@@ -161,9 +162,9 @@ export function CryptoStatsRow({
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <StatTile label={t("crypto.stats.allTimeProfit")}>
         <p className="text-lg font-semibold tabular-nums" style={{ color: profitColor }}>
-          {maskAmount(`${totals.totalProfitLoss >= 0 ? "+" : ""}${formatCurrency(totals.totalProfitLoss)}`, hidden)}
+          {unknownCost ? "—" : maskAmount(`${totals.totalProfitLoss >= 0 ? "+" : ""}${formatCurrency(totals.totalProfitLoss)}`, hidden)}
         </p>
-        {totals.totalProfitLossPercent !== null && (
+        {!unknownCost && totals.totalProfitLossPercent !== null && (
           <p className="mt-0.5 text-sm font-medium tabular-nums" style={{ color: profitColor }}>
             {totals.totalProfitLossPercent >= 0 ? "+" : ""}
             {totals.totalProfitLossPercent.toFixed(2)}%
@@ -173,9 +174,9 @@ export function CryptoStatsRow({
 
       <StatTile label={t("crypto.stats.costBasis")}>
         <p className="text-lg font-semibold tabular-nums text-text-primary">
-          {maskAmount(formatCurrency(totals.totalCostBasis), hidden)}
+          {unknownCost ? "—" : maskAmount(formatCurrency(totals.totalCostBasis), hidden)}
         </p>
-        <p className="mt-0.5 text-xs text-text-muted">{t("crypto.stats.costBasisHint")}</p>
+        <p className="mt-0.5 text-xs text-text-muted">{unknownCost ? (language === "ru" ? "Цена покупки неизвестна" : "Purchase cost unknown") : t("crypto.stats.costBasisHint")}</p>
       </StatTile>
 
       <PerformerTile

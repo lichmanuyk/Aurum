@@ -14,7 +14,7 @@ interface CryptoTransactionHistoryModalProps {
 }
 
 export function CryptoTransactionHistoryModal({ open, onClose, holding, hidden, onEdit }: CryptoTransactionHistoryModalProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { data: transactions, isLoading } = useCryptoTransactions(holding ? holding.asset_id : null);
   const deleteTransaction = useDeleteCryptoTransaction();
 
@@ -43,11 +43,11 @@ export function CryptoTransactionHistoryModal({ open, onClose, holding, hidden, 
                   backgroundColor: tx.type === "buy" ? "color-mix(in srgb, var(--success) 12%, transparent)" : "color-mix(in srgb, var(--danger) 12%, transparent)",
                 }}
               >
-                {tx.type === "buy" ? t("crypto.form.buy") : t("crypto.form.sell")}
+                {tx.type === "opening" ? (language === "ru" ? "Остаток" : "Opening") : tx.type === "buy" ? t("crypto.form.buy") : t("crypto.form.sell")}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm text-text-primary">
-                  {maskAmount(`${Number(tx.quantity)} ${holding.symbol} · ${formatCryptoAmount(tx.price_per_unit)}`, hidden)}
+                  {maskAmount(`${Number(tx.quantity)} ${holding.symbol} · ${(tx.price_per_unit === null ? "—" : formatCryptoAmount(tx.price_per_unit, tx.quote_currency ?? holding.quote_currency))}`, hidden)}
                 </span>
                 <span className="block text-xs text-text-muted">
                   {formatTransactionDate(tx.date, true)}

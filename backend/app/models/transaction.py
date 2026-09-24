@@ -25,7 +25,13 @@ class Transaction(Base, TimestampMixin):
         Enum(TransactionType, name="transaction_type", native_enum=False, length=10), nullable=False
     )
     # Always stored positive; `type` carries the sign/direction.
-    amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
+    # Exception: ADJUSTMENT is a signed change to the balance, outside cash flow.
+    amount: Mapped[Numeric] = mapped_column(Numeric(18, 6), nullable=False)
+    destination_amount: Mapped[Numeric | None] = mapped_column(Numeric(18, 6), nullable=True)
+    reporting_amount_override: Mapped[Numeric | None] = mapped_column(Numeric(18, 6), nullable=True)
+    reporting_currency_override: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    reporting_override_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    adjustment_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -59,7 +65,7 @@ class TransactionSplit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id", ondelete="CASCADE"), nullable=False)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
-    amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
+    amount: Mapped[Numeric] = mapped_column(Numeric(18, 6), nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     transaction: Mapped["Transaction"] = relationship(back_populates="splits")

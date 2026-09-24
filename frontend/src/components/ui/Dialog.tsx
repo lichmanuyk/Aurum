@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
@@ -12,6 +12,7 @@ interface DialogProps extends PropsWithChildren {
 
 export function Dialog({ open, onClose, title, children }: DialogProps) {
   const { t } = useTranslation();
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -32,11 +33,14 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-border bg-surface-1 p-5 shadow-xl sm:max-w-md sm:rounded-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+          <h2 id={titleId} className="text-base font-semibold text-text-primary">{title}</h2>
           <button
             type="button"
             onClick={onClose}

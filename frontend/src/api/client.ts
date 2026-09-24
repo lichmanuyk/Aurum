@@ -33,6 +33,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const parsed = JSON.parse(body) as { detail?: unknown };
       if (typeof parsed.detail === "string") message = parsed.detail;
+      else if (parsed.detail && typeof parsed.detail === "object" && "code" in parsed.detail) {
+        const d = parsed.detail as Record<string, string>;
+        message = d.code === "FX_RATE_MISSING"
+          ? `FX: ${d.base_currency} → ${d.quote_currency}, ${d.date}. Добавьте исторический курс в настройках / Add a historical rate in Settings.`
+          : `${d.code}: ${d.transaction_id ?? ""}`;
+      }
     } catch {
       // body wasn't JSON — fall back to the raw text set above
     }

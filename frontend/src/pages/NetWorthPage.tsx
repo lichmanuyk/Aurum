@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -20,7 +21,7 @@ export function NetWorthPage() {
   // briefly outpaces recorded income, which reads as decline even though
   // the long-run trend is up — 5y is long enough to make that trend visible.
   const [range, setRange] = useState<NetWorthRange>("5y");
-  const { data: summary, isLoading: isSummaryLoading } = useNetWorthSummary(range);
+  const { data: summary, isLoading: isSummaryLoading, error } = useNetWorthSummary(range);
   const { data: assets, isLoading: isAssetsLoading } = useAssets();
   const deleteAsset = useDeleteAsset();
 
@@ -47,6 +48,8 @@ export function NetWorthPage() {
     <div className="space-y-5">
       <AlertBanner />
 
+      <MoneyError error={error} />
+      {!error && <>
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />
 
       <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} />
@@ -55,6 +58,7 @@ export function NetWorthPage() {
 
       <RiskAllocationCard riskLevels={summary?.risk_levels ?? []} isLoading={isSummaryLoading} />
 
+      </>}
       <Card>
         <CardHeader>
           <CardTitle>{t("netWorth.myAssetsTitle")}</CardTitle>

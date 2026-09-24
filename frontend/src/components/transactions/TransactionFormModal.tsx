@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
@@ -10,7 +12,7 @@ import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransacti
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import { formatCurrency } from "@/lib/format";
-import type { Tag, Transaction, TransactionInput, TransactionSplitInput, TransactionType } from "@/types";
+import type { Tag, Transaction, TransactionInput, TransactionSplitInput, TransactionType, AdjustmentReason } from "@/types";
 
 interface TransactionFormModalProps {
   open: boolean;
@@ -28,6 +30,8 @@ const EMPTY_FORM = {
   category_id: "",
   transfer_account_id: "",
   amount: "",
+  destination_amount: "",
+  adjustment_reason: "opening_balance" as AdjustmentReason,
   description: "",
   merchant: "",
   notes: "",
@@ -59,19 +63,24 @@ function emptySplitRow(): SplitRowState {
 // Cents, not floats — a plain Number sum of "0.10" + "0.20" style amounts can
 // drift from the transaction total by fractions of a cent, which would
 // falsely trip the "must add up exactly" check the backend also enforces.
-function toCents(value: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+// Ledger precision extends cents to millionths, with integer arithmetic throughout.
+function toCents(value: string): bigint {
+  if (!/^\d*(?:\.\d{0,6})?$/.test(value)) return 0n;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole || "0") * 1000000n + BigInt(fraction.padEnd(6, "0"));
 }
 
 export function TransactionFormModal({ open, onClose, transaction }: TransactionFormModalProps) {
   const { t, language } = useTranslation();
-  const { data: accounts } = useAccounts();
+  const { data: allAccounts } = useAccounts(true);
+  const accounts = allAccounts?.filter(a => !a.is_archived || a.id === transaction?.account_id || a.id === transaction?.transfer_account_id);
   const { data: categories } = useCategories();
   const createTransaction = useCreateTransaction();
   const updateTransaction = useUpdateTransaction();
 
   const [form, setForm] = useState(EMPTY_FORM);
+  const [overrideAmount, setOverrideAmount] = useState("");
+  const [overrideCurrency, setOverrideCurrency] = useState(getCurrency());
   const [tags, setTags] = useState<Tag[]>([]);
   const [splitMode, setSplitMode] = useState(false);
   const [splitRows, setSplitRows] = useState<SplitRowState[]>([emptySplitRow(), emptySplitRow()]);
@@ -79,6 +88,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
 
   useEffect(() => {
     if (!open) return;
+    setOverrideAmount(transaction?.reporting_amount_override ?? "");
+    setOverrideCurrency(transaction?.reporting_currency_override ?? getCurrency());
     if (transaction) {
       const hasSplits = transaction.splits.length > 0;
       // A split's categories always share one parent (see
@@ -89,6 +100,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       const baseCategory = hasSplits ? transaction.splits.find((split) => split.category)?.category : null;
       setForm({
         type: transaction.type,
+        adjustment_reason: transaction.adjustment_reason ?? "opening_balance",
         account_id: String(transaction.account_id),
         category_id: hasSplits
           ? baseCategory
@@ -99,6 +111,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             : "",
         transfer_account_id: transaction.transfer_account_id ? String(transaction.transfer_account_id) : "",
         amount: transaction.amount,
+        destination_amount: transaction.destination_amount ?? "",
         description: transaction.description,
         merchant: transaction.merchant ?? "",
         notes: transaction.notes ?? "",
@@ -123,7 +136,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       setSplitRows([emptySplitRow(), emptySplitRow()]);
     }
     setError(null);
-  }, [open, transaction, accounts]);
+  }, [open, transaction, allAccounts]);
 
   const kindCategories = (categories ?? []).filter((category) =>
     form.type === "income" ? category.kind === "income" : category.kind === "expense"
@@ -133,6 +146,9 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
   // here.
   const relevantCategories = buildHierarchicalCategories(kindCategories, language);
 
+  const sourceCurrency = accounts?.find(a => a.id === Number(form.account_id))?.currency;
+  const destinationCurrency = accounts?.find(a => a.id === Number(form.transfer_account_id))?.currency;
+  const crossCurrency = sourceCurrency !== destinationCurrency;
   const isSaving = createTransaction.isPending || updateTransaction.isPending;
 
   function updateSplitRow(key: string, patch: Partial<SplitRowState>) {
@@ -147,8 +163,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
     setSplitRows((prev) => (prev.length <= 2 ? prev : prev.filter((row) => row.key !== key)));
   }
 
-  const isSplitEditingNow = form.type !== "transfer" && splitMode;
-  const splitAllocatedCents = splitRows.reduce((sum, row) => sum + toCents(row.amount), 0);
+  const isSplitEditingNow = (form.type === "income" || form.type === "expense") && splitMode;
+  const splitAllocatedCents = splitRows.reduce((sum, row) => sum + toCents(row.amount), 0n);
   const splitRemainingCents = toCents(form.amount) - splitAllocatedCents;
 
   // The category select becomes the split's "base" category while
@@ -215,7 +231,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         setError(t("transactions.form.errorSplitIncomplete"));
         return;
       }
-      const allocatedCents = filledRows.reduce((sum, row) => sum + toCents(row.amount), 0);
+      const allocatedCents = filledRows.reduce((sum, row) => sum + toCents(row.amount), 0n);
       if (allocatedCents !== toCents(form.amount)) {
         setError(t("transactions.form.errorSplitMismatch"));
         return;
@@ -233,13 +249,18 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       type: form.type,
       account_id: Number(form.account_id),
       category_id:
-        form.type === "transfer" || (splits && splits.length > 0)
+        (form.type === "transfer" || form.type === "adjustment") || (splits && splits.length > 0)
           ? null
           : form.category_id
             ? Number(form.category_id)
             : null,
       transfer_account_id: form.type === "transfer" ? Number(form.transfer_account_id) : null,
       amount: form.amount,
+      adjustment_reason: form.type === "adjustment" ? form.adjustment_reason : null,
+      destination_amount: form.type === "transfer" ? (crossCurrency ? form.destination_amount : form.amount) : null,
+      reporting_amount_override: (form.type === "income" || form.type === "expense") && overrideAmount ? overrideAmount : null,
+      reporting_currency_override: (form.type === "income" || form.type === "expense") && overrideAmount ? overrideCurrency : null,
+      reporting_override_source: (form.type === "income" || form.type === "expense") && overrideAmount ? (overrideAmount === transaction?.reporting_amount_override && overrideCurrency === transaction?.reporting_currency_override ? transaction.reporting_override_source : "manual") : null,
       description: form.description,
       merchant: form.merchant || null,
       notes: form.notes || null,
@@ -275,12 +296,13 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             onChange={(event) => {
               const nextType = event.target.value as TransactionType;
               setForm((prev) => ({ ...prev, type: nextType, category_id: "" }));
-              if (nextType === "transfer") setSplitMode(false);
+              if (nextType === "transfer" || nextType === "adjustment") setSplitMode(false);
             }}
           >
             <option value="expense">{t("transactions.form.typeExpense")}</option>
             <option value="income">{t("transactions.form.typeIncome")}</option>
             <option value="transfer">{t("transactions.form.typeTransfer")}</option>
+            <option value="adjustment">{t("transactions.form.typeAdjustment")}</option>
           </Select>
         </div>
 
@@ -290,8 +312,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
             <Input
               id="amount"
               type="number"
-              step="0.01"
-              min="0.01"
+              step="0.000001"
+              min={form.type === "adjustment" ? undefined : "0.000001"}
               required
               value={form.amount}
               onChange={(event) => setForm((prev) => ({ ...prev, amount: event.target.value }))}
@@ -339,7 +361,15 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           </Select>
         </div>
 
-        {form.type === "transfer" ? (
+        {form.type === "adjustment" ? (
+          <div><Label htmlFor="adjustment_reason">{t("transactions.adjustmentReason")}</Label>
+            <Select id="adjustment_reason" value={form.adjustment_reason} onChange={e => setForm({ ...form, adjustment_reason: e.target.value as AdjustmentReason })}>
+              <option value="opening_balance">{t("transactions.openingBalance")}</option>
+              <option value="reconciliation">{t("transactions.reconciliation")}</option>
+              <option value="migration">{t("transactions.migration")}</option>
+            </Select><p className="mt-2 text-xs text-text-muted">{t("transactions.adjustmentHint")}</p>
+          </div>
+        ) : form.type === "transfer" ? (
           <div>
             <Label htmlFor="transfer_account">{t("transactions.form.transferAccountLabel")}</Label>
             <Select
@@ -421,8 +451,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                       <div className="flex items-center gap-1.5">
                         <Input
                           type="number"
-                          step="0.01"
-                          min="0.01"
+                          step="0.000001"
+                          min={form.type === "adjustment" ? undefined : "0.000001"}
                           className="w-24"
                           placeholder={t("transactions.form.amountLabel")}
                           value={row.amount}
@@ -457,14 +487,14 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                     <Plus size={14} />
                     {t("transactions.form.splitAddRow")}
                   </button>
-                  <p className={`text-xs ${splitRemainingCents === 0 ? "text-success" : "text-text-muted"}`}>
+                  <p className={`text-xs ${splitRemainingCents === 0n ? "text-success" : "text-text-muted"}`}>
                     {splitRemainingCents > 0
                       ? t("transactions.form.splitRemainingLabel", {
-                          amount: formatCurrency(splitRemainingCents / 100),
+                          amount: formatCurrency(Number(splitRemainingCents) / 1000000, sourceCurrency),
                         })
                       : splitRemainingCents < 0
                         ? t("transactions.form.splitOverAllocatedLabel", {
-                            amount: formatCurrency(Math.abs(splitRemainingCents) / 100),
+                            amount: formatCurrency(Math.abs(Number(splitRemainingCents)) / 1000000, sourceCurrency),
                           })
                         : t("transactions.form.splitFullyAllocatedLabel")}
                   </p>
@@ -500,6 +530,16 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           <TagInput value={tags} onChange={setTags} />
         </div>
 
+        {(form.type === "income" || form.type === "expense") && <details open={Boolean(overrideAmount)}>
+          <summary className="text-sm">{language === "ru" ? "Фактическая сумма для отчёта (необязательно)" : "Actual reporting amount (optional)"}</summary>
+          <CurrencySelect value={overrideCurrency} onChange={setOverrideCurrency} />
+          <Input aria-label="Reporting amount override" type="number" min="0.000001" step="0.000001" value={overrideAmount} onChange={e => setOverrideAmount(e.target.value)} />
+        </details>}
+        {form.type === "transfer" && crossCurrency && <label className="block text-sm">
+          {language === "ru" ? "Зачислено" : "Received"} ({destinationCurrency})
+          <Input type="number" min="0.000001" step="0.000001" required value={form.destination_amount} onChange={e => setForm(prev => ({ ...prev, destination_amount: e.target.value }))} />
+        </label>}
+        <p className="text-xs text-text-muted">{language === "ru" ? "Валюта списания" : "Source currency"}: {sourceCurrency}</p>
         {error && <p className="text-sm text-danger">{error}</p>}
 
         <div className="flex justify-end gap-2 pt-2">

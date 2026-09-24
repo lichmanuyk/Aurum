@@ -1,5 +1,5 @@
 import { Flag, PiggyBank, Pencil, Trash2 } from "lucide-react";
-import { formatCurrency, getIntlLocale } from "@/lib/format";
+import { formatMoney, getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { Goal } from "@/types";
 
@@ -39,7 +39,7 @@ export function GoalList({ items, onContribute, onEdit, onDelete }: GoalListProp
               </span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">{goal.name}</span>
               <span className="shrink-0 text-sm tabular-nums text-text-primary">
-                {formatCurrency(current)} <span className="text-text-muted">/ {formatCurrency(target)}</span>
+                {formatMoney(current, goal.currency)} <span className="text-text-muted">/ {formatMoney(target, goal.currency)}</span>
               </span>
               <span className="flex shrink-0 gap-1">
                 <button
@@ -83,8 +83,8 @@ export function GoalList({ items, onContribute, onEdit, onDelete }: GoalListProp
               {goal.is_reached
                 ? t("goal.reached")
                 : goal.target_date
-                  ? t("goal.remainingWithDate", { amount: formatCurrency(remaining), date: formatTargetDate(goal.target_date) })
-                  : t("goal.remaining", { amount: formatCurrency(remaining) })}
+                  ? t("goal.remainingWithDate", { amount: formatMoney(remaining, goal.currency), date: formatTargetDate(goal.target_date) })
+                  : t("goal.remaining", { amount: formatMoney(remaining, goal.currency) })}
             </p>
           </li>
         );
