@@ -1,7 +1,8 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { Bitcoin, Plus, Trash2 } from "lucide-react";
 import { NetworkPicker } from "@/components/crypto/NetworkPicker";
 import { RiskLevelPicker } from "@/components/crypto/RiskLevelPicker";
-import { formatCryptoAmount, maskAmount } from "@/lib/format";
+import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { CryptoHolding, CryptoPortfolio, RiskLevel } from "@/types";
 
@@ -42,6 +43,7 @@ export function CryptoHoldingsTable({
   onNetworkChange,
   portfoliosById,
 }: CryptoHoldingsTableProps) {
+  const { formatCryptoAmount } = useSummaryFormat();
   const { t } = useTranslation();
 
   if (items.length === 0) {

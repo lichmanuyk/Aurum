@@ -1,8 +1,9 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { RangeSelector } from "@/components/layout/RangeSelector";
-import { formatCurrency, formatSignedCurrency, getIntlLocale } from "@/lib/format";
+import { getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { NetWorthRange, NetWorthSummary } from "@/types";
 
@@ -40,6 +41,7 @@ function computeYearTicks(dates: string[]): string[] {
 }
 
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { date: string; value: number } }> }) {
+  const { formatCurrency } = useSummaryFormat();
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
@@ -51,6 +53,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
 }
 
 export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetWorthChartProps) {
+  const { formatCurrency, formatSignedCurrency } = useSummaryFormat();
   const { t } = useTranslation();
   const isPositive = summary ? Number(summary.change_amount) >= 0 : true;
   const trendColor = isPositive ? "var(--success)" : "var(--danger)";

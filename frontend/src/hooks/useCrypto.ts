@@ -1,3 +1,4 @@
+import { useSummaryCurrency } from "@/lib/summaryCurrency";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addCryptoTransaction,
@@ -72,11 +73,12 @@ export function useDeleteCryptoPortfolio() {
 }
 
 export function useCryptoHoldings(portfolioId?: number | null) {
+  const currency = useSummaryCurrency();
   const cache = useQueryClient();
   return useQuery({
-    queryKey: ["crypto-holdings", portfolioId ?? null],
+    queryKey: ["crypto-holdings", portfolioId ?? null, currency],
     queryFn: async () => {
-      const result = await fetchCryptoHoldings(portfolioId);
+      const result = await fetchCryptoHoldings(portfolioId, currency);
       if (result.synced) void cache.invalidateQueries({ queryKey: ["quote-status"] });
       return result;
     },
@@ -84,9 +86,10 @@ export function useCryptoHoldings(portfolioId?: number | null) {
 }
 
 export function useCryptoHistory(range: CryptoRange, portfolioId?: number | null) {
+  const currency = useSummaryCurrency();
   return useQuery({
-    queryKey: ["crypto-history", range, portfolioId ?? null],
-    queryFn: () => fetchCryptoHistory(range, portfolioId),
+    queryKey: ["crypto-history", range, portfolioId ?? null, currency],
+    queryFn: () => fetchCryptoHistory(range, portfolioId, currency),
   });
 }
 

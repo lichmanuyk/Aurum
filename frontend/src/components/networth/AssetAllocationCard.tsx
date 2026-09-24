@@ -1,6 +1,7 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { NetWorthBreakdownItem } from "@/types";
 
@@ -17,6 +18,7 @@ function breakdownLabelKey(key: string): TranslationKey {
 }
 
 export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCardProps) {
+  const { formatCurrency } = useSummaryFormat();
   const { t } = useTranslation();
   const total = breakdown.reduce((sum, item) => sum + Number(item.amount), 0);
 

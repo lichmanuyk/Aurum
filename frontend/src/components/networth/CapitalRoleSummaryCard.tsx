@@ -1,5 +1,6 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, pluralizeRu } from "@/lib/format";
+import { pluralizeRu } from "@/lib/format";
 import { useTranslation, type Language, type TranslationKey } from "@/lib/i18n";
 import type { CapitalRoleSummary } from "@/types";
 
@@ -14,6 +15,7 @@ function assetsCountLabel(count: number, language: Language): string {
 }
 
 export function CapitalRoleSummaryCard({ roles, isLoading }: CapitalRoleSummaryCardProps) {
+  const { formatCurrency } = useSummaryFormat();
   const { t, language } = useTranslation();
 
   return (

@@ -1,3 +1,4 @@
+import { useSummaryFormat } from "@/lib/summaryCurrency";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -7,7 +8,7 @@ import { CryptoNetworkAllocationBody } from "@/components/crypto/CryptoNetworkAl
 import { CryptoRangeSelector } from "@/components/crypto/CryptoRangeSelector";
 import { CryptoRiskAllocationBody } from "@/components/crypto/CryptoRiskAllocationBody";
 import { PillSelector } from "@/components/layout/PillSelector";
-import { formatCurrency, formatSignedCurrency, maskAmount } from "@/lib/format";
+import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { CryptoHistoryResponse, CryptoHolding, CryptoRange } from "@/types";
 
@@ -44,6 +45,7 @@ export function CryptoOverviewCard({
   hidden,
   onToggleHidden,
 }: CryptoOverviewCardProps) {
+  const { formatCurrency, formatSignedCurrency } = useSummaryFormat();
   const { t } = useTranslation();
   const [tab, setTab] = useState<OverviewTab>("history");
 
