@@ -13,6 +13,41 @@ Aurum is a source-available personal finance operating system — a complete, gr
 
 </div>
 
+## Личный форк: постоянный запуск
+
+Рабочая версия этого форка находится в ветке `personal`. Ветка `main` повторяет
+исходный [Zproger/Aurum](https://github.com/Zproger/Aurum) и служит для получения
+его обновлений. Изменения попадают в `personal` через PR и проверки CI.
+
+На этом Mac постоянное приложение — Docker-проект `aurum-personal` по адресу
+<http://127.0.0.1:3101>. Его данные хранятся в томе
+`aurum-personal_aurum_pgdata`, отдельно от старых проектов `aurum` и
+`aurum-fx-e2e`. Файл `.env.personal` уже создан локально и исключён из Git;
+он содержит отдельный пароль БД и настройки входа. **Не копируйте поверх него
+`.env.example` и не запускайте эту установку без `-p aurum-personal` и
+`--env-file .env.personal`: иначе Docker выберет другую базу.**
+
+После слияния проверенного PR обновить и запустить эту версию можно так:
+
+```bash
+git switch personal
+git pull --ff-only origin personal
+docker compose --env-file .env.personal -p aurum-personal up -d --build
+docker compose --env-file .env.personal -p aurum-personal ps
+```
+
+При первом запуске на **другом** компьютере создайте собственный
+`.env.personal` из `.env.example`: задайте новый `AURUM_POSTGRES_PASSWORD`,
+`AURUM_POSTGRES_DB=aurum_personal`, `AURUM_WEB_PORT=3101`,
+`AURUM_DEFAULT_CURRENCY=PLN` и пару `AURUM_BASIC_AUTH_USER` /
+`AURUM_BASIC_AUTH_PASSWORD`. Затем восстановите данные через
+**Настройки → Резервная копия**. Повторный импорт при обычном обновлении кода
+не нужен. Не используйте `docker compose down -v`: эта команда удаляет том БД.
+
+На этом Mac отдельная автоматизация в 13:00 по Варшаве сохраняет копию именно
+из `aurum-personal-backend-1` в iCloud Drive и хранит ежедневные копии 30 дней.
+Автоматизация локальная: на другом компьютере её понадобится настроить заново.
+
 ## 🖼️ Screenshots
 
 <div align="center">
@@ -122,7 +157,7 @@ At minimum, change these two before going any further:
 | Variable | What it does |
 |---|---|
 | `AURUM_POSTGRES_PASSWORD` | Password for Aurum's own Postgres container. The template ships with `change-me` on purpose — replace it with something real. |
-| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | **Aurum has no login screen of its own.** Leave these blank and the app has no password at all — fine if it's only reachable from `localhost`, not fine anywhere else. Set both to put an HTTP Basic Auth prompt in front of the whole app. See [Security & Self-Hosting](#-security--self-hosting) below. |
+| `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` | Aurum has no separate user-account system. Leave these blank and the app has no password at all — fine if it's only reachable from `localhost`, not fine anywhere else. Set both to enable its login screen backed by HTTP Basic Auth. See [Security & Self-Hosting](#-security--self-hosting) below. |
 
 Everything else in `.env` (currency, CORS, the port Aurum listens on) has a sensible default and can be left alone for a first run.
 
@@ -171,7 +206,7 @@ or open `/api/docs` on your running instance for interactive Swagger docs.
 
 ## 🔒 Security & Self-Hosting
 
-**Aurum has no built-in login system.** It's built for one person to self-host one private instance of their own financial data — not as a multi-tenant service with per-user accounts. That's a deliberate trade-off, not an oversight, but it means:
+**Aurum has no per-user account system.** It's built for one person to self-host one private instance of their own financial data — not as a multi-tenant service. The optional login screen uses one shared HTTP Basic Auth credential pair. That means:
 
 - If you leave `AURUM_BASIC_AUTH_USER` / `AURUM_BASIC_AUTH_PASSWORD` unset in `.env`, **anyone who can reach the container can read, edit, and delete all of it — no password prompt at all.** The app itself now says so on first load, with a warning you have to dismiss. This is fine if Aurum is only reachable from `localhost`.
 - Set both variables before exposing your instance beyond your own machine (a VPS, a subdomain, a Tailscale/VPN endpoint someone else might share). This turns on an HTTP Basic Auth prompt in front of the entire app, UI and API alike.
