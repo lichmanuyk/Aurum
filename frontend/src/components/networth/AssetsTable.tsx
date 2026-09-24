@@ -1,6 +1,6 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency, formatTransactionDate } from "@/lib/format";
+import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { Asset, CapitalRole } from "@/types";
 
@@ -61,7 +61,7 @@ export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-sm font-medium tabular-nums text-text-primary">
-                {formatCurrency(asset.current_value)}
+                {formatMoney(asset.current_value, asset.currency)}
               </span>
               {cashFlow !== null && cashFlow !== 0 && (
                 <span
@@ -69,7 +69,7 @@ export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
                   style={{ color: cashFlow > 0 ? "var(--success)" : "var(--danger)" }}
                 >
                   {cashFlow > 0 ? "+" : ""}
-                  {formatCurrency(cashFlow)}
+                  {formatMoney(cashFlow, asset.currency)}
                   {t("common.perMonth")}
                   {annualRoiPercent !== null && ` · ${t("netWorth.assetsTable.annualRoi", { percent: annualRoiPercent.toFixed(1) })}`}
                 </span>

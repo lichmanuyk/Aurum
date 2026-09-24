@@ -17,6 +17,6 @@ export function deleteRecurring(id: number) {
   return api.delete<void>(`/recurring/${id}`);
 }
 
-export function postRecurring(id: number) {
-  return api.post<RecurringTransaction>(`/recurring/${id}/post`, {});
+export function postRecurring(id: number, destination_amount?: string) {
+  return api.post<RecurringTransaction>(`/recurring/${id}/post`, { destination_amount });
 }

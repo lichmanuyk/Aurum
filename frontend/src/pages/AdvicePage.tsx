@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { Lightbulb, TrendingUp, TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { useAdvice } from "@/hooks/useAdvice";
@@ -47,7 +48,7 @@ function adviceMessage(item: AdviceItem, t: ReturnType<typeof useTranslation>["t
 
 export function AdvicePage() {
   const { t } = useTranslation();
-  const { data, isLoading } = useAdvice();
+  const { data, isLoading, error } = useAdvice();
   const items = data?.items ?? [];
 
   return (
@@ -57,7 +58,7 @@ export function AdvicePage() {
           <CardTitle>{t("nav.advice")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {error ? <MoneyError error={error} /> : isLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : items.length === 0 ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("advice.empty")}</p>

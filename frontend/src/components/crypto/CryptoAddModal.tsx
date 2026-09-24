@@ -1,3 +1,5 @@
+import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { getCurrency } from "@/lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { ApiError } from "@/api/client";
 import { searchCryptoCoins } from "@/api/crypto";
@@ -23,7 +25,8 @@ interface CryptoAddModalProps {
  * enter how much of it is held. No separate multi-step wizard — unlike CSV
  * import, there's nothing here worth a dedicated page for. */
 export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddModalProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const [unknownCost, setUnknownCost] = useState(false);
   const createHolding = useCreateCryptoHolding();
   const { data: portfolios } = useCryptoPortfolios();
   // Every portfolio's holdings, purely to build the network datalist below
@@ -40,6 +43,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CryptoSearchResult | null>(null);
   const [portfolioId, setPortfolioId] = useState<number | null>(null);
+  const [quoteCurrency, setQuoteCurrency] = useState(getCurrency());
   const [quantity, setQuantity] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -56,6 +60,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
     setSelected(null);
     setQuantity("");
     setPricePerUnit("");
+    setUnknownCost(false);
     setDate(new Date().toISOString().slice(0, 10));
     setRiskLevel("high");
     setNetwork("");
@@ -68,6 +73,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
   // any portfolio existed yet, then the default one got created".
   useEffect(() => {
     if (!open) return;
+    setQuoteCurrency(getCurrency());
     if (defaultPortfolioId != null) {
       setPortfolioId(defaultPortfolioId);
     } else if (portfolios && portfolios.length > 0) {
@@ -112,7 +118,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
         name: selected.name,
         thumb_url: selected.thumb_url,
         quantity,
-        price_per_unit: pricePerUnit,
+        quote_currency: quoteCurrency, price_per_unit: unknownCost ? null : pricePerUnit,
         date,
         risk_level: riskLevel,
         network: network.trim() || null,
@@ -169,6 +175,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
         </div>
       ) : (
         <form onSubmit={handleSave} className="space-y-3">
+          <CurrencySelect value={quoteCurrency} onChange={setQuoteCurrency} />
           <div className="flex items-center gap-3 rounded-lg bg-surface-2 p-2">
             {selected.thumb_url ? (
               <img src={selected.thumb_url} alt="" className="h-6 w-6 shrink-0 rounded-full" />
@@ -198,6 +205,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
             </div>
           )}
 
+          <label className="flex gap-2 text-sm"><input type="checkbox" checked={unknownCost} onChange={e => setUnknownCost(e.target.checked)} />{language === "ru" ? "Внести остаток: цена покупки неизвестна" : "Opening balance: purchase cost unknown"}</label>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="crypto-quantity">{t("crypto.form.quantityLabel")}</Label>
@@ -220,6 +228,7 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
                 step="any"
                 min="0"
                 required
+                disabled={unknownCost}
                 value={pricePerUnit}
                 onChange={(event) => setPricePerUnit(event.target.value)}
               />

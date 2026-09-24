@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, Banknote, CreditCard, Package, Pencil, PiggyBank, TrendingUp, Trash2, Wallet, type LucideIcon } from "lucide-react";
-import { formatCurrency } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { Account, AccountType, AccountWithBalance } from "@/types";
 
@@ -55,7 +55,7 @@ export function AccountList({ items, onEdit, onToggleArchived, onDelete }: Accou
               className="shrink-0 text-sm font-medium tabular-nums"
               style={{ color: balance < 0 ? "var(--danger)" : "var(--text-primary)" }}
             >
-              {formatCurrency(balance)}
+              {formatMoney(account.balance, account.currency)}
             </span>
             <span className="flex shrink-0 gap-1">
               <button

@@ -39,10 +39,11 @@ interface AlertBannerProps {
  * net-worth decline — computed server-side from data that already exists,
  * no configuration. Renders nothing when there's nothing to flag. */
 export function AlertBanner({ excludeKeys }: AlertBannerProps = {}) {
-  const { data } = useFinancialAlerts();
-  const { t } = useTranslation();
+  const { data, error } = useFinancialAlerts();
+  const { t, language } = useTranslation();
   const alerts = (data?.alerts ?? []).filter((alert) => !excludeKeys?.includes(alert.key));
 
+  if (error || data?.unavailable_checks.length) return <p role="alert" className="rounded-lg border border-danger/30 p-3 text-sm text-danger">{language === "ru" ? "Часть финансовых проверок недоступна: проверьте исторические курсы в настройках." : "Some financial checks are unavailable: check historical rates in Settings."}</p>;
   if (alerts.length === 0) return null;
 
   return (

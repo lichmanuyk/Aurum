@@ -9,7 +9,7 @@ import { useTranslation } from "@/lib/i18n";
 import type { RecurringTransaction } from "@/types";
 
 export function RecurringPage() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { data: items, isLoading } = useRecurring();
   const deleteRecurring = useDeleteRecurring();
   const postRecurring = usePostRecurring();
@@ -34,11 +34,15 @@ export function RecurringPage() {
   }
 
   function handlePost(item: RecurringTransaction) {
-    postRecurring.mutate(item.id);
+    const crossCurrency = item.type === "transfer" && item.currency !== item.destination_currency;
+    const amount = crossCurrency ? window.prompt(`${language === "ru" ? "Фактически зачислено" : "Actual amount received"} (${item.destination_currency})`) : undefined;
+    if (crossCurrency && !amount) return;
+    postRecurring.mutate({ id: item.id, destination_amount: amount ?? undefined });
   }
 
   return (
     <div className="space-y-5">
+      {postRecurring.error && <p role="alert" className="text-danger">{postRecurring.error.message}</p>}
       <Card>
         <CardHeader>
           <CardTitle>{t("nav.recurring")}</CardTitle>

@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -21,7 +22,7 @@ export function BudgetPage() {
   const { data: years } = useTransactionYears();
 
   const { data: budgets } = useBudgets();
-  const { data: status, isLoading } = useBudgetStatus(year, month);
+  const { data: status, isLoading, error } = useBudgetStatus(year, month);
   const deleteBudget = useDeleteBudget();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,6 +36,7 @@ export function BudgetPage() {
   function openEditModal(item: BudgetStatus) {
     setEditingBudget({
       id: item.budget_id,
+      currency: item.currency,
       category_id: item.category_id,
       category_name: item.category_name,
       category_color: item.category_color,
@@ -70,7 +72,7 @@ export function BudgetPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {error ? <MoneyError error={error} /> : isLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
             <BudgetList items={status?.items ?? []} onEdit={openEditModal} onDelete={handleDelete} />

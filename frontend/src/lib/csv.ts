@@ -107,6 +107,12 @@ export type AmountFormat = (typeof AMOUNT_FORMATS)[number];
  * point, so 2+ occurrences of the same separator can only be thousands
  * grouping. */
 export function parseAmount(raw: string, format: AmountFormat = "auto"): number | null {
+  const value = parseDecimalAmount(raw, format);
+  return value === null ? null : Number(value);
+}
+
+/** Exact signed decimal for monetary writes, rejects unsupported fractional precision. */
+export function parseDecimalAmount(raw: string, format: AmountFormat = "auto"): string | null {
   let value = raw.trim().replace(/[\s ]/g, "");
   if (!value) return null;
 
@@ -128,8 +134,12 @@ export function parseAmount(raw: string, format: AmountFormat = "auto"): number 
     }
   }
 
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  if (!/^[+-]?\d+(?:\.\d{1,6})?$/.test(value)) return null;
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = value.replace(/^[+-]/, "").split(".");
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, "");
+  if (normalizedWhole.length > 12) return null;
+  return `${negative ? "-" : ""}${normalizedWhole}.${fraction.padEnd(2, "0")}`;
 }
 
 /** Stable key for spotting a re-imported bank export that overlaps a
@@ -138,6 +148,6 @@ export function parseAmount(raw: string, format: AmountFormat = "auto"): number 
  * actually stores, so it works whether the "existing" side comes from a
  * Transaction or the "candidate" side from a freshly parsed CSV row. */
 export function transactionDedupeKey(date: string, type: string, amount: number | string, description: string): string {
-  const normalizedAmount = typeof amount === "number" ? amount : Number(amount);
-  return `${date}|${type}|${normalizedAmount.toFixed(2)}|${description.trim().toLowerCase()}`;
+  const normalizedAmount = parseDecimalAmount(String(amount), "dot-decimal")?.replace(/0+$/, "").replace(/\.$/, "") ?? String(amount);
+  return `${date}|${type}|${normalizedAmount}|${description.trim().toLowerCase()}`;
 }

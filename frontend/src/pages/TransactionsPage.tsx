@@ -199,7 +199,8 @@ export function TransactionsPage() {
           <option value="">{t("transactions.allTypes")}</option>
           <option value="expense">{t("transactions.expense")}</option>
           <option value="income">{t("transactions.income")}</option>
-          <option value="transfer">{t("transactions.transfer")}</option>
+          <option value="adjustment">{t("transactions.form.typeAdjustment")}</option>
+              <option value="transfer">{t("transactions.transfer")}</option>
         </Select>
         <Select
           value={categoryId}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ArrowLeftRight, CalendarSearch, Pencil, SquareDivide, StickyNote, Trash2 } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency, formatTransactionDate } from "@/lib/format";
+import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
 import { useCategories } from "@/hooks/useCategories";
@@ -36,6 +36,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
       <ul className="divide-y divide-gridline">
         {items.map((tx) => {
           const isTransfer = tx.type === "transfer";
+          const isAdjustment = tx.type === "adjustment";
           const isExpense = tx.type === "expense";
           const isSplit = tx.splits.length > 0;
           const Icon = isTransfer ? ArrowLeftRight : isSplit ? SquareDivide : getCategoryIcon(tx.category?.icon);
@@ -60,6 +61,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                 <span className="block truncate text-xs text-text-muted">
                   {formatTransactionDate(tx.date, Boolean(onJumpToMonth))} · {tx.account.name}
                   {isTransfer && tx.transfer_account_id ? ` ${t("transactions.transferSuffix")}` : ""}
+                  {isAdjustment ? ` · ${t("transactions.form.typeAdjustment")}` : ""}
                   {categoryLabel ? ` · ${categoryLabel}` : ""}
                   {tx.tags.length > 0 ? ` · ${tx.tags.map((tag) => tag.name).join(", ")}` : ""}
                 </span>
@@ -67,11 +69,12 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
 
               <span
                 className={`shrink-0 text-sm font-medium tabular-nums ${
-                  isTransfer ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
+                  isTransfer || isAdjustment ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
                 }`}
               >
-                {isTransfer ? "" : isExpense ? "-" : "+"}
-                {formatCurrency(tx.amount)}
+                {isAdjustment ? (Number(tx.amount) > 0 ? "+" : "") : isTransfer ? "" : isExpense ? "-" : "+"}
+                {formatMoney(tx.amount, tx.account.currency)}
+                {tx.type === "transfer" && tx.transfer_account && <span className="block text-xs">→ {tx.destination_amount ? formatMoney(tx.destination_amount, tx.transfer_account.currency) : "?"}</span>}
               </span>
 
               <span className="flex shrink-0 gap-1">

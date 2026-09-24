@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { PillSelector } from "@/components/layout/PillSelector";
 import { YearRangeSelector } from "@/components/layout/YearSelector";
@@ -25,7 +26,7 @@ export function CashFlowPage() {
   ];
 
   const { startDate, endDate } = computeRange(range, customRange);
-  const { data: cashFlow, isLoading } = useCashFlow(startDate, endDate);
+  const { data: cashFlow, isLoading, error } = useCashFlow(startDate, endDate);
 
   return (
     <div className="space-y-5">
@@ -41,7 +42,7 @@ export function CashFlowPage() {
         )}
       </div>
 
-      <CashFlowChart cashFlow={cashFlow} isLoading={isLoading} />
+      {error ? <MoneyError error={error} /> : <CashFlowChart cashFlow={cashFlow} isLoading={isLoading} />}
     </div>
   );
 }

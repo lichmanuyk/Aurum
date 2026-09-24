@@ -11,9 +11,12 @@ export function useUpdateAppSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: Partial<AppSettings>) => updateSettings(input),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      await queryClient.cancelQueries();
+      queryClient.removeQueries({ predicate: q => q.queryKey[0] !== "settings" });
       queryClient.setQueryData(["settings"], data);
       setCurrency(data.currency);
+      await queryClient.invalidateQueries();
     },
   });
 }

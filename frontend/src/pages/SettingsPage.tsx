@@ -1,3 +1,4 @@
+import { FxRatesCard } from "@/components/settings/FxRatesCard";
 import { AlertThresholdsCard } from "@/components/settings/AlertThresholdsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CurrencyCard } from "@/components/settings/CurrencyCard";
@@ -15,6 +16,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PreferencesCard />
       <CurrencyCard />
+      <FxRatesCard />
       <AlertThresholdsCard />
       <BackupCard />
       {appSettings?.app_version && (

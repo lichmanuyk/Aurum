@@ -1,6 +1,6 @@
 import { Pencil, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { BudgetStatus } from "@/types";
@@ -40,7 +40,7 @@ export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
                 {translateCategoryName(item.category_name)}
               </span>
               <span className="shrink-0 text-sm tabular-nums text-text-primary">
-                {formatCurrency(spent)} <span className="text-text-muted">/ {formatCurrency(limit)}</span>
+                {formatMoney(spent, item.currency)} <span className="text-text-muted">/ {formatMoney(limit, item.currency)}</span>
               </span>
               <span className="flex shrink-0 gap-1">
                 <button
@@ -74,8 +74,8 @@ export function BudgetList({ items, onEdit, onDelete }: BudgetListProps) {
             </div>
             <p className="mt-1 pl-12 text-xs" style={{ color: item.is_over_budget ? "var(--danger)" : "var(--text-muted)" }}>
               {item.is_over_budget
-                ? t("budget.overBy", { amount: formatCurrency(spent - limit) })
-                : t("budget.remaining", { amount: formatCurrency(limit - spent) })}
+                ? t("budget.overBy", { amount: formatMoney(spent - limit, item.currency) })
+                : t("budget.remaining", { amount: formatMoney(limit - spent, item.currency) })}
             </p>
           </li>
         );

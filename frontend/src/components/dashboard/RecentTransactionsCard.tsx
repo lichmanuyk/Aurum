@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency, formatTransactionDate } from "@/lib/format";
+import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
 import { useTransactions } from "@/hooks/useTransactions";
@@ -39,6 +39,7 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
               const isSplit = tx.splits.length > 0;
               const Icon = getCategoryIcon(tx.category?.icon);
               const isTransfer = tx.type === "transfer";
+          const isAdjustment = tx.type === "adjustment";
               const isExpense = tx.type === "expense";
               const color = tx.category?.color ?? "var(--text-muted)";
               const categoryLabel = isSplit
@@ -58,16 +59,17 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
                     <span className="block truncate text-sm text-text-primary">{tx.description}</span>
                     <span className="block truncate text-xs text-text-muted">
                       {formatTransactionDate(tx.date)} · {tx.account.name}
-                      {categoryLabel ? ` · ${categoryLabel}` : ""}
+                      {isAdjustment ? ` · ${t("transactions.form.typeAdjustment")}` : ""}
+                  {categoryLabel ? ` · ${categoryLabel}` : ""}
                     </span>
                   </span>
                   <span
                     className={`shrink-0 text-sm font-medium tabular-nums ${
-                      isTransfer ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
+                      isTransfer || isAdjustment ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
                     }`}
                   >
-                    {isTransfer ? "" : isExpense ? "-" : "+"}
-                    {formatCurrency(Number(tx.amount))}
+                    {isAdjustment ? (Number(tx.amount) > 0 ? "+" : "") : isTransfer ? "" : isExpense ? "-" : "+"}
+                    {formatMoney(tx.amount, tx.account.currency)}
                   </span>
                 </li>
               );

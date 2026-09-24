@@ -1,3 +1,4 @@
+import { MoneyError } from "@/components/ui/MoneyError";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -49,8 +50,8 @@ export function ReportsPage() {
   }, [categories, categoryId]);
 
   const { startDate, endDate } = computeRange(range, customRange);
-  const { data: ranking, isLoading: isRankingLoading } = useCategoryRanking("expense", startDate, endDate);
-  const { data: report, isLoading: isReportLoading } = useCategorySpendingReport(categoryId, startDate, endDate);
+  const { data: ranking, isLoading: isRankingLoading, error: rankingError } = useCategoryRanking("expense", startDate, endDate);
+  const { data: report, isLoading: isReportLoading, error: reportError } = useCategorySpendingReport(categoryId, startDate, endDate);
   const { data: transactions, isLoading: isTransactionsLoading } = useTransactions({
     category_id: categoryId ?? undefined,
     start_date: startDate,
@@ -143,8 +144,9 @@ export function ReportsPage() {
         </div>
       </div>
 
-      <CategorySpendingChart report={report} isLoading={isReportLoading} />
+      {reportError ? <MoneyError error={reportError} /> : <CategorySpendingChart report={report} isLoading={isReportLoading} />}
 
+      <MoneyError error={rankingError} />
       <CategoryRankingCard
         items={ranking?.items ?? []}
         isLoading={isRankingLoading}
