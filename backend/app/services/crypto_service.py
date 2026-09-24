@@ -412,7 +412,7 @@ async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: in
         )
 
     holdings = await list_holdings(session)
-    error_key: Literal["unreachable"] | None = None
+    error_key: Literal["unreachable", "incomplete"] | None = None
     if holdings:
         settings = await get_or_create_app_settings(session)
         try:
@@ -428,6 +428,7 @@ async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: in
             for holding in holdings:
                 point = market_data[holding.asset.currency].get(holding.coingecko_id)
                 if point is None:
+                    error_key = "incomplete"
                     continue  # coin missing from the response — keep its last known values, don't zero them out
                 holding.last_price = point.price
                 holding.price_change_1h = point.change_1h
@@ -529,7 +530,10 @@ async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) ->
         # GET /crypto/holdings doesn't immediately re-fetch every holding
         # again a moment later (see refresh_prices' 24h window).
         state = await get_or_create_sync_state(session)
-        state.last_synced_at = datetime.now(timezone.utc)
+        # Only the first holding can represent a complete portfolio refresh.
+        # Adding another coin must not make older prices look fresh.
+        if point is not None and len(await list_holdings(session)) == 1:
+            state.last_synced_at = datetime.now(timezone.utc)
     except (httpx.HTTPError, HTTPException):
         pass  # holding is still created — the next daily/manual sync will price it
 

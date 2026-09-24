@@ -59,7 +59,7 @@ export function NetWorthChart({ summary, isLoading, range, onRangeChange }: NetW
 
   return (
     <Card>
-      <CardHeader className="items-start">
+      <CardHeader className="flex-wrap items-start gap-3">
         <div>
           <CardTitle>{t("nav.netWorth")}</CardTitle>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums text-text-primary sm:text-[28px]">

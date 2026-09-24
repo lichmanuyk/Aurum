@@ -65,3 +65,9 @@ async def load_nbp_rates(payload: NBPImport, session: AsyncSession = Depends(get
 async def fx_coverage(session: AsyncSession = Depends(get_session)):
     from app.services.nbp_service import coverage
     return await coverage(session)
+
+
+@router.get('/status')
+async def read_quote_status(session: AsyncSession = Depends(get_session)):
+    from app.services.quote_status_service import quote_status
+    return await quote_status(session)

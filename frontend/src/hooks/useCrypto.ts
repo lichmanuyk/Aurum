@@ -29,6 +29,7 @@ import type {
 function useInvalidateCrypto() {
   const queryClient = useQueryClient();
   return () => {
+    queryClient.invalidateQueries({ queryKey: ["quote-status"] });
     queryClient.invalidateQueries({ queryKey: ["crypto-holdings"] });
     queryClient.invalidateQueries({ queryKey: ["crypto-transactions"] });
     queryClient.invalidateQueries({ queryKey: ["crypto-history"] });
@@ -71,9 +72,14 @@ export function useDeleteCryptoPortfolio() {
 }
 
 export function useCryptoHoldings(portfolioId?: number | null) {
+  const cache = useQueryClient();
   return useQuery({
     queryKey: ["crypto-holdings", portfolioId ?? null],
-    queryFn: () => fetchCryptoHoldings(portfolioId),
+    queryFn: async () => {
+      const result = await fetchCryptoHoldings(portfolioId);
+      if (result.synced) void cache.invalidateQueries({ queryKey: ["quote-status"] });
+      return result;
+    },
   });
 }
 

@@ -1,6 +1,7 @@
+import { QuoteFreshness } from "@/components/settings/QuoteFreshness";
 import { MoneyError } from "@/components/ui/MoneyError";
 import { useMemo, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CryptoAddModal } from "@/components/crypto/CryptoAddModal";
@@ -17,17 +18,11 @@ import {
   useCryptoHoldings,
   useCryptoPortfolios,
   useDeleteCryptoHolding,
-  useRefreshCryptoPrices,
   useUpdateCryptoHolding,
   useUpdateCryptoHoldingRisk,
 } from "@/hooks/useCrypto";
-import { getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { CryptoHolding, CryptoPortfolio, CryptoRange, CryptoTransaction, RiskLevel } from "@/types";
-
-function formatSyncedAt(iso: string): string {
-  return new Intl.DateTimeFormat(getIntlLocale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
-}
 
 export function CryptoPage() {
   const { t } = useTranslation();
@@ -45,7 +40,6 @@ export function CryptoPage() {
   const { data, isLoading, error } = useCryptoHoldings(portfolioFilter);
   const { data: history, isLoading: isHistoryLoading, error: historyError } = useCryptoHistory(range, portfolioFilter);
   const { data: performance90d, isLoading: isPerformance90dLoading } = useCrypto90dPerformance(range, portfolioFilter);
-  const refresh = useRefreshCryptoPrices();
   const deleteHolding = useDeleteCryptoHolding();
   const updateRisk = useUpdateCryptoHoldingRisk();
   const updateHolding = useUpdateCryptoHolding();
@@ -111,6 +105,7 @@ export function CryptoPage() {
 
   return (
     <div className="space-y-5">
+      <QuoteFreshness />
       <MoneyError error={error ?? historyError ?? (data?.holdings.some(h => h.valuation_error) ? new Error("FX: проверьте исторические курсы / Check historical exchange rates") : null)} />
       <CryptoPortfolioTabs
         portfolios={portfolios ?? []}
@@ -147,17 +142,10 @@ export function CryptoPage() {
         <CardHeader className="flex-col items-stretch gap-3 sm:flex-row sm:items-center">
           <div>
             <CardTitle>{t("crypto.holdingsTitle")}</CardTitle>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {data?.last_synced_at
-                ? t("crypto.lastSynced", { time: formatSyncedAt(data.last_synced_at) })
-                : t("crypto.neverSynced")}
-            </p>
+
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
-              <RefreshCw size={16} className={refresh.isPending ? "animate-spin" : undefined} />
-              {refresh.isPending ? t("crypto.refreshing") : t("crypto.refreshButton")}
-            </Button>
+
             <Button onClick={() => setAddOpen(true)}>
               <Plus size={16} />
               {t("crypto.addButton")}
