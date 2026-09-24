@@ -6,7 +6,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, personal]
 
 # Least privilege for GITHUB_TOKEN: these jobs only ever read the checkout.
 # Without this the token inherits the repository default, which can include
@@ -75,3 +75,25 @@ jobs:
       # renamed job doesn't silently stop matching branch protection's
       # required status checks.
       - run: npm run test
+
+  browser-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+        working-directory: e2e
+      - run: npx playwright install --with-deps chromium
+        working-directory: e2e
+      - run: bash e2e/run.sh
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: browser-test-failures
+          path: e2e/test-results/
+          retention-days: 7
