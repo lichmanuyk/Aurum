@@ -20,12 +20,17 @@ Aurum is a source-available personal finance operating system — a complete, gr
 его обновлений. Изменения попадают в `personal` через PR и проверки CI.
 
 На этом Mac постоянное приложение — Docker-проект `aurum-personal` по адресу
-<http://127.0.0.1:3101>. Его данные хранятся в томе
+<http://127.0.0.1:3003>. Его данные хранятся в томе
 `aurum-personal_aurum_pgdata`, отдельно от старых проектов `aurum` и
 `aurum-fx-e2e`. Файл `.env.personal` уже создан локально и исключён из Git;
 он содержит отдельный пароль БД и настройки входа. **Не копируйте поверх него
 `.env.example` и не запускайте эту установку без `-p aurum-personal` и
 `--env-file .env.personal`: иначе Docker выберет другую базу.**
+
+На этом Mac Tailscale Serve направляет <https://hel04153.tailaa6ebe.ts.net>
+на локальный порт 3003. Для доступа с других своих устройств Tailscale должен
+быть включён на Mac и на устройстве; состояние проверяется командами
+`tailscale status` и `tailscale serve status`.
 
 После слияния проверенного PR обновить и запустить эту версию можно так:
 
@@ -38,14 +43,14 @@ docker compose --env-file .env.personal -p aurum-personal ps
 
 При первом запуске на **другом** компьютере создайте собственный
 `.env.personal` из `.env.example`: задайте новый `AURUM_POSTGRES_PASSWORD`,
-`AURUM_POSTGRES_DB=aurum_personal`, `AURUM_WEB_PORT=3101`,
+`AURUM_POSTGRES_DB=aurum_personal`, `AURUM_WEB_PORT=3003`,
 `AURUM_DEFAULT_CURRENCY=PLN` и пару `AURUM_BASIC_AUTH_USER` /
 `AURUM_BASIC_AUTH_PASSWORD`. Затем восстановите данные через
 **Настройки → Резервная копия**. Повторный импорт при обычном обновлении кода
 не нужен. Не используйте `docker compose down -v`: эта команда удаляет том БД.
 
 На этом Mac отдельная автоматизация в 13:00 по Варшаве сохраняет копию из
-защищённого приложения `aurum-personal` на порту 3101 в iCloud Drive и хранит
+защищённого приложения `aurum-personal` на порту 3003 в iCloud Drive и хранит
 ежедневные копии 30 дней. Перед экспортом она проверяет, что приложение
 требует настроенный вход и отдаёт поддерживаемый формат резервной копии.
 Автоматизация локальная: на другом компьютере её понадобится настроить заново.
