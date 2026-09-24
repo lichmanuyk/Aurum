@@ -549,7 +549,7 @@ export interface CryptoTransactionInput {
 export interface CryptoSyncResult {
   synced: boolean;
   last_synced_at: string | null;
-  error_key: "unreachable" | null;
+  error_key: "unreachable" | "incomplete" | null;
   holdings: CryptoHolding[];
 }
 

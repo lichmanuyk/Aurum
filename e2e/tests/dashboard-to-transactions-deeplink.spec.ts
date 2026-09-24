@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
 
 // Regression for v0.17.1: the "All transactions" link on Dashboard always

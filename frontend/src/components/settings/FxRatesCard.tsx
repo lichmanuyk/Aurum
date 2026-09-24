@@ -1,3 +1,4 @@
+import { QuoteFreshness } from "./QuoteFreshness";
 import { NbpImport } from "./NbpImport";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ export function FxRatesCard() {
   }
   return <Card><CardHeader><CardTitle>{ru ? "Справочные курсы валют" : "Reference exchange rates"}</CardTitle></CardHeader>
     <CardContent className="space-y-3">
+      <QuoteFreshness />
       <NbpImport />
       <p className="text-sm text-text-muted">{ru ? "Справочные курсы используются для оценки капитала и пересчёта отчётов в одну валюту. Они не меняют фактически списанные и полученные суммы переводов. Курс конкретного обмена задаётся его двумя суммами в форме перевода. Для выходных используется предыдущий курс, не старше 7 дней." : "Reference rates value capital and convert reports into one currency. They do not change the amounts actually sent and received in transfers. Each exchange uses the two amounts entered in its transfer form. Previous rates may be used for up to 7 days."}</p>
       {preflight.data && (preflight.data.unresolved_transfer_ids.length > 0 || preflight.data.unresolved_crypto_trade_ids.length > 0) && <p role="alert" className="text-danger">{ru ? "Требуется уточнение старых данных" : "Legacy data needs review"}: transfers [{preflight.data.unresolved_transfer_ids.join(", ")}], crypto [{preflight.data.unresolved_crypto_trade_ids.join(", ")}].</p>}

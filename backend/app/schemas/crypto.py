@@ -170,7 +170,7 @@ class CryptoSyncResult(BaseModel):
     # sentence here would silently break the app's bilingual UI.
     synced: bool
     last_synced_at: datetime | None
-    error_key: Literal["unreachable"] | None = None
+    error_key: Literal["unreachable", "incomplete"] | None = None
     holdings: list[CryptoHoldingRead]
 
 

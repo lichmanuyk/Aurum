@@ -1,3 +1,4 @@
+import { QuoteFreshness } from "@/components/settings/QuoteFreshness";
 import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { Plus } from "lucide-react";
@@ -48,6 +49,7 @@ export function NetWorthPage() {
     <div className="space-y-5">
       <AlertBanner />
 
+      <QuoteFreshness compact />
       <MoneyError error={error} />
       {!error && <>
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />
