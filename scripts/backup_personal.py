@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 DEST = Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/Aurum Backups'
 CONFIG = Path(__file__).resolve().parents[1] / '.env.personal'
-SOURCE = 'http://127.0.0.1:3101/api/backup/export'
+SOURCE = 'http://127.0.0.1:3003/api/backup/export'
 
 def main():
     os.umask(0o077)
