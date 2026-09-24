@@ -308,7 +308,7 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="amount">{t("transactions.form.amountLabel")}</Label>
+            <Label htmlFor="amount">{form.type === "transfer" ? (language === "ru" ? "Фактически списано" : "Actually sent") : t("transactions.form.amountLabel")}</Label>
             <Input
               id="amount"
               type="number"
@@ -536,9 +536,10 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           <Input aria-label="Reporting amount override" type="number" min="0.000001" step="0.000001" value={overrideAmount} onChange={e => setOverrideAmount(e.target.value)} />
         </details>}
         {form.type === "transfer" && crossCurrency && <label className="block text-sm">
-          {language === "ru" ? "Зачислено" : "Received"} ({destinationCurrency})
-          <Input type="number" min="0.000001" step="0.000001" required value={form.destination_amount} onChange={e => setForm(prev => ({ ...prev, destination_amount: e.target.value }))} />
+          {language === "ru" ? "Фактически получено" : "Actually received"} ({destinationCurrency})
+          <Input aria-describedby="transfer-amount-help" type="number" min="0.000001" step="0.000001" required value={form.destination_amount} onChange={e => setForm(prev => ({ ...prev, destination_amount: e.target.value }))} />
         </label>}
+        {form.type === "transfer" && crossCurrency && <p id="transfer-amount-help" className="text-xs text-text-muted">{language === "ru" ? "Укажите сумму, которую реально получили. Она сохраняется только в этом переводе: другие обмены и обновление справочных курсов её не изменят. Этот перевод не меняет справочный курс." : "Enter the amount you actually received. It is saved for this transfer only: other exchanges and reference rate updates will not change it. This transfer does not change the reference rate."}</p>}
         <p className="text-xs text-text-muted">{language === "ru" ? "Валюта списания" : "Source currency"}: {sourceCurrency}</p>
         {error && <p className="text-sm text-danger">{error}</p>}
 

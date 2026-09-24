@@ -54,6 +54,32 @@ async def test_missing_rate_does_not_block_native_data(client):
     assert (await client.get('/backup/export')).status_code == 200
 
 
+async def test_same_day_exchanges_keep_actual_amounts_independent_of_daily_fx(client):
+    usd, pln = await account(client, 'USD'), await account(client, 'PLN')
+    await rate(client, date.today(), base='USD', value='4.3')
+    official = (await client.get('/fx-rates')).json()
+    await tx(client, usd, type='income', amount='300')
+    first = await tx(client, usd, type='transfer', transfer_account_id=pln, destination_amount='360')
+    second = await tx(client, usd, type='transfer', transfer_account_id=pln, destination_amount='380')
+    assert (await client.get('/fx-rates')).json() == official
+
+    async def check_amounts():
+        balances = {a['id']: Decimal(a['balance']) for a in (await client.get('/accounts')).json()}
+        assert balances[usd] == 100 and balances[pln] == 740
+        backup = (await client.get('/backup/export')).json()
+        transfers = {t['id']: t for t in backup['transactions']}
+        for transfer, received in ((first, '360'), (second, '380')):
+            assert Decimal(transfers[transfer['id']]['amount']) == 100
+            assert Decimal(transfers[transfer['id']]['destination_amount']) == Decimal(received)
+        return backup
+
+    await check_amounts()
+    await rate(client, date.today(), base='USD', value='4.5')
+    backup = await check_amounts()
+    assert (await client.post('/backup/import', json=backup)).status_code == 200
+    await check_amounts()
+
+
 async def test_historical_flow_reports_budget_and_override(client, categories):
     eur = await account(client, 'EUR')
     await client.patch('/settings', json={'currency': 'PLN'})
