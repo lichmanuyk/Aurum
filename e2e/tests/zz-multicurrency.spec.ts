@@ -21,7 +21,7 @@ test('native EUR balance, actual PLN transfer amount, rate entry and reporting s
     await dialog.locator('#transfer_account').selectOption(String(target.id));
     await dialog.locator('#amount').fill('100');
     await dialog.locator('#description').fill('FX transfer browser');
-    await dialog.getByLabel(/Зачислено|Received/).fill('431.27');
+    await dialog.getByLabel(/Фактически получено|Actually received/).fill('431.27');
     await dialog.getByRole('button', { name: /Сохранить|Save/ }).click();
     await expect(dialog).toBeHidden();
     await expect(page.getByText('FX transfer browser', { exact: true })).toBeVisible();
@@ -32,7 +32,7 @@ test('native EUR balance, actual PLN transfer amount, rate entry and reporting s
     await expect(sourceRow).toContainText('€');
     await expect(targetRow).toContainText(/431[,.]27/);
     await page.goto('/settings');
-    const rates = page.locator('div.rounded-xl').filter({ has: page.getByText(/Исторические курсы|Historical exchange rates/, { exact: true }) });
+    const rates = page.locator('div.rounded-xl').filter({ has: page.getByText(/Справочные курсы валют|Reference exchange rates/, { exact: true }) });
     await rates.getByRole('combobox').nth(0).selectOption('EUR');
     await rates.getByRole('combobox').nth(1).selectOption('PLN');
     await rates.getByLabel('FX rate').fill('4.3127');
