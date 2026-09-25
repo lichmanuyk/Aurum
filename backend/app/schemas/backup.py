@@ -194,6 +194,7 @@ class GoalContributionBackup(BaseModel):
 
     id: int
     goal_id: int
+    account_id: int | None = None
     amount: Decimal
     date: date_
     note: str | None

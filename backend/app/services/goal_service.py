@@ -7,12 +7,15 @@ from app.services.settings_service import get_or_create_app_settings
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.account import Account
 from app.models.goal import Goal, GoalContribution
 from app.schemas.goal import GoalContributionCreate, GoalCreate, GoalRead, GoalUpdate
+from app.services.money_service import native_balances
+from app.services.net_worth_service import CASH_ACCOUNT_TYPES
 
 _SELECT_WITH_TOTAL = (
     select(
@@ -22,6 +25,7 @@ _SELECT_WITH_TOTAL = (
         Goal.target_amount,
         Goal.target_date,
         func.coalesce(func.sum(GoalContribution.amount), 0).label("current_amount"),
+        func.coalesce(func.sum(case((GoalContribution.account_id.is_not(None), GoalContribution.amount), else_=0)), 0).label("reserved_amount"),
     )
     .outerjoin(GoalContribution, GoalContribution.goal_id == Goal.id)
     .group_by(Goal.id, Goal.currency, Goal.name, Goal.target_amount, Goal.target_date, Goal.created_at)
@@ -40,6 +44,7 @@ def _to_read(row: Row) -> GoalRead:
         target_amount=target,
         target_date=row.target_date,
         current_amount=current,
+        reserved_amount=row.reserved_amount,
         remaining=target - current,
         percent=percent,
         is_reached=current >= target,
@@ -101,6 +106,21 @@ async def add_contribution(session: AsyncSession, goal_id: int, payload: GoalCon
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
     require_money(payload.amount, goal.currency)
-    session.add(GoalContribution(goal_id=goal_id, amount=payload.amount, date=payload.date, note=payload.note))
+    if payload.account_id is not None:
+        account = await session.scalar(select(Account).where(Account.id == payload.account_id).with_for_update())
+        if account is None or account.currency != goal.currency or account.type not in CASH_ACCOUNT_TYPES or account.is_archived:
+            raise HTTPException(422, "Choose an active cash account in the goal currency")
+        reserved = await session.scalar(select(func.coalesce(func.sum(GoalContribution.amount), 0)).where(
+            GoalContribution.account_id == account.id
+        ))
+        goal_reserved = await session.scalar(select(func.coalesce(func.sum(GoalContribution.amount), 0)).where(
+            GoalContribution.account_id == account.id, GoalContribution.goal_id == goal_id
+        ))
+        if payload.amount < 0 and goal_reserved + payload.amount < 0:
+            raise HTTPException(422, "Cannot release more than this goal reserves on the account")
+        if payload.amount > 0 and (await native_balances(session))[account.id] - reserved < payload.amount:
+            raise HTTPException(409, "Not enough unreserved money on this account")
+    session.add(GoalContribution(goal_id=goal_id, account_id=payload.account_id,
+                                 amount=payload.amount, date=payload.date, note=payload.note))
     await session.commit()
     return await _read_one(session, goal_id)

@@ -86,6 +86,9 @@ export function GoalList({ items, onContribute, onEdit, onDelete }: GoalListProp
                   ? t("goal.remainingWithDate", { amount: formatMoney(remaining, goal.currency), date: formatTargetDate(goal.target_date) })
                   : t("goal.remaining", { amount: formatMoney(remaining, goal.currency) })}
             </p>
+            {Number(goal.reserved_amount) > 0 && <p className="pl-12 text-xs text-text-muted">
+              {t("goal.reserved", { amount: formatMoney(goal.reserved_amount, goal.currency) })}
+            </p>}
           </li>
         );
       })}

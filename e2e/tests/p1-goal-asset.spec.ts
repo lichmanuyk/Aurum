@@ -30,11 +30,13 @@ test('a goal contribution leaves cash alone and asset valuation changes capital 
     const goal = page.locator('li').filter({ hasText: 'P1 reserve goal' });
     await goal.getByRole('button', { name: /Добавить взнос|Add contribution/ }).click();
     dialog = page.getByRole('dialog');
+    await dialog.locator('#contribution-account').selectOption(String(account.id));
     await dialog.locator('#contribution-amount').fill('300');
     await dialog.getByRole('button', { name: /Сохранить|Save/ }).click();
     await expect(dialog).toBeHidden();
     await expect(goal).toContainText(/300[,.]00/);
     expect(await balance()).toBe(1000);
+    expect(Number((await (await request.get('/api/accounts')).json()).find((row: { id: number }) => row.id === account.id).available_balance)).toBe(700);
     expect(await capital()).toBe(1000);
 
     const asset = await (await request.post('/api/assets', { data: {

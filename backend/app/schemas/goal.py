@@ -23,6 +23,7 @@ class GoalContributionCreate(BaseModel):
     # Negative allowed — a withdrawal from the goal is still a contribution
     # to its running total, just in the other direction. Zero is pointless.
     amount: Decimal
+    account_id: int | None = None
     date: date_
     note: str | None = Field(default=None, max_length=200)
 
@@ -44,6 +45,7 @@ class GoalRead(BaseModel):
     target_amount: Decimal
     target_date: date_ | None
     current_amount: Decimal
+    reserved_amount: Decimal = Decimal("0")
     remaining: Decimal
     percent: float
     is_reached: bool

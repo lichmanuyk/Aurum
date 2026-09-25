@@ -34,7 +34,7 @@ def latest_backup(now=None):
     if not re.fullmatch(r'[0-9a-f]{64}', expected) or hashlib.sha256(raw).hexdigest() != expected:
         raise RuntimeError('Backup checksum mismatch')
     data = json.loads(raw)
-    if data.get('aurum_backup_version') not in (5, 6) or not data.get('accounts') or not data.get('transactions'):
+    if data.get('aurum_backup_version') not in (5, 6, 7) or not data.get('accounts') or not data.get('transactions'):
         raise RuntimeError('Backup format or financial history is unexpected')
     return path, raw, data
 
@@ -49,6 +49,9 @@ def request(url, body=None):
 
 
 def compare(original, restored):
+    if original.get('aurum_backup_version', 0) < 7:
+        for row in original.get('goal_contributions', []):
+            row.setdefault('account_id', None)
     # A supported older file is re-exported using the current format version.
     original = {key: value for key, value in original.items() if key not in ('exported_at', 'aurum_backup_version')}
     restored = {key: value for key, value in restored.items() if key not in ('exported_at', 'aurum_backup_version')}

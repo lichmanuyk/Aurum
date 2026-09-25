@@ -33,7 +33,7 @@ def main():
     with urlopen(Request(SOURCE, headers={'Authorization': 'Basic ' + credentials}), timeout=120) as response:
         raw = response.read()
     data = json.loads(raw)
-    if data.get('aurum_backup_version') not in (4, 5, 6):
+    if data.get('aurum_backup_version') not in (4, 5, 6, 7):
         raise ValueError('Unexpected backup version; existing backups preserved')
     for key in ('accounts', 'categories', 'transactions', 'assets', 'asset_valuations',
                 'crypto_holdings', 'crypto_transactions', 'fx_rates'):

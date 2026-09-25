@@ -43,3 +43,5 @@ class AccountWithBalance(AccountRead):
     Cash. Used only by /api/accounts' own endpoints, never nested."""
 
     balance: Decimal
+    reserved_balance: Decimal = Decimal("0")
+    available_balance: Decimal = Decimal("0")
