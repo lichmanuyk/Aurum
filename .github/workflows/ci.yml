@@ -52,6 +52,8 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: pytest -v
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+        working-directory: .
 
   frontend-build:
     runs-on: ubuntu-latest
