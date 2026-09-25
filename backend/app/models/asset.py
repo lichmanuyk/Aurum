@@ -6,7 +6,7 @@ through the Transactions feature. See services/net_worth_service.py.
 """
 from datetime import date as date_
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Date, Enum, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -46,7 +46,7 @@ class Asset(Base, TimestampMixin):
     )
 
     valuations: Mapped[list["AssetValuation"]] = relationship(
-        back_populates="asset", cascade="all, delete-orphan", order_by="AssetValuation.as_of_date"
+        back_populates="asset", cascade="all, delete-orphan", order_by=lambda: (AssetValuation.as_of_date, AssetValuation.id)
     )
 
 
@@ -55,7 +55,7 @@ class AssetValuation(Base):
     the asset's current value; the full history drives the net-worth chart."""
 
     __tablename__ = "asset_valuations"
-    __table_args__ = (UniqueConstraint("asset_id", "as_of_date", name="uq_asset_valuation_date"),)
+    __table_args__ = (Index("ix_asset_valuation_order", "asset_id", "as_of_date", "id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)

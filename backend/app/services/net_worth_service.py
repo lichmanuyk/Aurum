@@ -136,7 +136,7 @@ async def _asset_events_and_class_totals(
 
     valuations_result = await session.execute(
         select(AssetValuation.asset_id, AssetValuation.as_of_date, AssetValuation.value).order_by(
-            AssetValuation.as_of_date
+            AssetValuation.as_of_date, AssetValuation.id
         )
     )
     rows = valuations_result.all()

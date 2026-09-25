@@ -42,6 +42,27 @@ test('buy and sell an asset from an account without counting trades as income or
     expect(await value()).toBe(0);
     expect(await capital()).toBe(1000);
     expect(Number((await flow()).total_expense)).toBe(0);
+    await dialog.locator('#movement-gross').fill('300');
+    await dialog.locator('#movement-value').fill('300');
+    await dialog.getByRole('button', { name: /Записать операцию|Record trade/ }).click();
+    await expect.poll(balance).toBe(700);
+    await dialog.locator('#movement-gross').fill('200');
+    await dialog.locator('#movement-value').fill('500');
+    await dialog.getByRole('button', { name: /Записать операцию|Record trade/ }).click();
+    await expect(dialog.locator('li')).toHaveCount(2);
+    expect(await balance()).toBe(500);
+    expect(await value()).toBe(500);
+    expect(await capital()).toBe(1000);
+    page.once('dialog', confirmation => confirmation.accept());
+    await dialog.locator('li').filter({ hasText: '200' }).getByRole('button', { name: /Удалить|Delete/ }).click();
+    await expect(dialog.locator('li')).toHaveCount(1);
+    expect(await balance()).toBe(700);
+    expect(await value()).toBe(300);
+    page.once('dialog', confirmation => confirmation.accept());
+    await dialog.locator('li').getByRole('button', { name: /Удалить|Delete/ }).click();
+    await expect(dialog.getByText(/Пока нет|None yet/)).toBeVisible();
+    expect(await balance()).toBe(1000);
+    expect(await value()).toBe(0);
   } finally {
     const restore = await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: snapshot });
     expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();

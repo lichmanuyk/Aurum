@@ -3,7 +3,6 @@ from app.core.money import require_money
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -93,20 +92,16 @@ async def add_asset_valuation(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     require_money(payload.value, asset.currency)
-    existing = await session.scalar(select(AssetValuation.id).where(
+    await session.scalar(select(Asset.id).where(Asset.id == asset_id).with_for_update())
+    existing = await session.scalar(select(AssetValuation).where(
         AssetValuation.asset_id == asset_id, AssetValuation.as_of_date == payload.as_of_date
-    ))
-    if existing and await session.scalar(select(Transaction.id).where(Transaction.asset_valuation_id == existing)):
+    ).order_by(AssetValuation.id.desc()).limit(1))
+    if existing and await session.scalar(select(Transaction.id).where(Transaction.asset_valuation_id == existing.id)):
         raise HTTPException(409, "Edit the linked asset movement to change this valuation")
-    upsert_stmt = (
-        pg_insert(AssetValuation)
-        .values(asset_id=asset_id, value=payload.value, as_of_date=payload.as_of_date)
-        .on_conflict_do_update(
-            index_elements=[AssetValuation.asset_id, AssetValuation.as_of_date],
-            set_={"value": payload.value},
-        )
-    )
-    await session.execute(upsert_stmt)
+    if existing:
+        existing.value = payload.value
+    else:
+        session.add(AssetValuation(asset_id=asset_id, value=payload.value, as_of_date=payload.as_of_date))
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
@@ -119,7 +114,7 @@ async def list_asset_valuations(asset_id: int, session: AsyncSession = Depends(g
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     result = await session.execute(
-        select(AssetValuation).where(AssetValuation.asset_id == asset_id).order_by(AssetValuation.as_of_date)
+        select(AssetValuation).where(AssetValuation.asset_id == asset_id).order_by(AssetValuation.as_of_date, AssetValuation.id)
     )
     return list(result.scalars().all())
 

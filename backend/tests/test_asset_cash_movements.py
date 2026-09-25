@@ -51,7 +51,7 @@ async def test_manual_asset_purchase_revalue_sale_edit_delete_and_restore(client
     assert changed.status_code == 200, changed.text
     assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 1040
     backup = (await client.get('/backup/export')).json()
-    assert backup['aurum_backup_version'] == 5
+    assert backup['aurum_backup_version'] == 6
     assert (await client.post('/backup/import', json=backup)).status_code == 200
     assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 1040
     bad = deepcopy(backup)
@@ -93,6 +93,37 @@ async def test_crypto_trade_moves_cash_and_coin_together(client, account_id, mon
     assert (await client.delete(f'/asset-movements/{trade_id}')).status_code == 204
     assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 900
     assert Decimal((await client.get('/crypto/holdings')).json()['holdings'][0]['quantity']) == 2
+
+
+async def test_two_manual_asset_trades_on_one_day_restore_and_delete_in_reverse_order(client, account_id):
+    yesterday, today = str(date.today() - timedelta(days=1)), str(date.today())
+    assert (await client.post('/transactions', json=dict(account_id=account_id, type='adjustment',
+        amount='1000', adjustment_reason='opening_balance', description='Opening', date=yesterday))).status_code == 201
+    asset = (await client.post('/assets', json=dict(name='Two trades', asset_class='investments',
+        currency='USD', value='0', as_of_date=yesterday))).json()
+
+    def trade(gross, value, key):
+        return dict(asset_id=asset['id'], account_id=account_id, type='buy', gross_amount=gross,
+                    fee_amount='0', asset_value_after=value, date=today, idempotency_key=key)
+
+    first = await client.post('/asset-movements', json=trade('300', '300', 'same-day-first'))
+    second = await client.post('/asset-movements', json=trade('200', '500', 'same-day-second'))
+    assert first.status_code == second.status_code == 201, (first.text, second.text)
+    assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 500
+    assert Decimal((await client.get('/assets')).json()[0]['current_value']) == 500
+    assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 1000
+    assert (await client.delete(f"/asset-movements/{first.json()['id']}")).status_code == 409
+
+    backup = (await client.get('/backup/export')).json()
+    assert len([row for row in backup['asset_valuations'] if row['asset_id'] == asset['id'] and row['as_of_date'] == today]) == 2
+    assert (await client.post('/backup/import', json=backup)).status_code == 200
+    assert Decimal((await client.get('/assets')).json()[0]['current_value']) == 500
+    assert (await client.delete(f"/asset-movements/{second.json()['id']}")).status_code == 204
+    assert Decimal((await client.get('/assets')).json()[0]['current_value']) == 300
+    assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 700
+    assert (await client.delete(f"/asset-movements/{first.json()['id']}")).status_code == 204
+    assert Decimal((await client.get('/assets')).json()[0]['current_value']) == 0
+    assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 1000
 
 
 async def test_fees_affect_cash_once_and_not_income_or_spending(client, account_id):

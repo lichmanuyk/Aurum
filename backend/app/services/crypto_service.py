@@ -31,7 +31,6 @@ from typing import Literal, NamedTuple
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -375,20 +374,20 @@ async def get_or_create_sync_state(session: AsyncSession) -> CryptoSyncState:
 
 
 async def _upsert_valuation(session: AsyncSession, asset_id: int, value: Decimal, as_of_date: date_) -> None:
-    """Same upsert-by-date pattern as routes/assets.py's POST
-    /assets/{id}/valuations — re-syncing the same day updates that day's
-    value instead of erroring. Still needed even though quantity/price
+    """Re-syncing the same day updates that day's value instead of adding
+    another snapshot. Lock the asset so concurrent syncs cannot duplicate it.
+    Still needed even though quantity/price
     aren't stored on CryptoHolding: Net Worth's whole engine reads this
     table, not CryptoHolding, for a coin's value history."""
-    upsert_stmt = (
-        pg_insert(AssetValuation)
-        .values(asset_id=asset_id, value=value, as_of_date=as_of_date)
-        .on_conflict_do_update(
-            index_elements=[AssetValuation.asset_id, AssetValuation.as_of_date],
-            set_={"value": value},
-        )
-    )
-    await session.execute(upsert_stmt)
+    await session.scalar(select(Asset.id).where(Asset.id == asset_id).with_for_update())
+    existing = await session.scalar(select(AssetValuation).where(
+        AssetValuation.asset_id == asset_id, AssetValuation.as_of_date == as_of_date
+    ).order_by(AssetValuation.id.desc()).limit(1))
+    if existing:
+        existing.value = value
+    else:
+        session.add(AssetValuation(asset_id=asset_id, value=value, as_of_date=as_of_date))
+    await session.flush()
 
 
 async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: int | None = None) -> CryptoSyncResult:
