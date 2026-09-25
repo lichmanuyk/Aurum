@@ -1,5 +1,6 @@
 import { MoneyError } from "@/components/ui/MoneyError";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Label, Select } from "@/components/ui/Input";
@@ -13,12 +14,21 @@ import { useCategories } from "@/hooks/useCategories";
 import { useCategoryRanking, useCategorySpendingReport } from "@/hooks/useReports";
 import { useDeleteTransaction, useTransactions, useTransactionYears } from "@/hooks/useTransactions";
 import type { TransactionSort } from "@/api/transactions";
-import { computeRange, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
+import { computeRange, parseRangeParam, parseYearRangeParam, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import type { Transaction } from "@/types";
 
 const PAGE_SIZE = 20;
+
+/** Same defensive shape as parseYearParam/parseMonthParam in
+ * TransactionsPage.tsx — a hand-edited or stale `category_id` falls back
+ * to null (auto-select-first-expense) rather than crashing. */
+function parseCategoryIdParam(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 export function ReportsPage() {
   const { t, language } = useTranslation();
@@ -31,12 +41,27 @@ export function ReportsPage() {
   ];
   const { data: categories } = useCategories();
   const { data: years } = useTransactionYears();
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [range, setRange] = useState<RangePreset>("all");
-  const [customRange, setCustomRange] = useState<CustomYearRange>({
-    fromYear: now.getFullYear(),
-    toYear: now.getFullYear(),
-  });
+  // Read once as initial state, not kept in sync — same pattern as
+  // TransactionsPage.tsx's year/month params, so a link from Cash Flow's
+  // category lists (see reportsLinkFor in lib/dateRange.ts) survives a
+  // page reload without fighting the user's own subsequent clicks here.
+  const [searchParams] = useSearchParams();
+  const categoryIdFromUrl = useRef(parseCategoryIdParam(searchParams.get("category_id"))).current;
+  const [categoryId, setCategoryId] = useState<number | null>(categoryIdFromUrl);
+  // Mirrors reportsLinkFor's own `include_subcategories=1` — a category
+  // ranking row's id is always top-level and its amount already rolls up
+  // direct subcategories (see category_rollup.py), so the table below must
+  // match the same set for a link (or an in-page ranking click, further
+  // down) to not lose subcategory-only transactions. The dropdown above
+  // picks one exact category by hand and stays exact-match, same as before.
+  const [includeSubcategories, setIncludeSubcategories] = useState<boolean>(
+    () => searchParams.get("include_subcategories") === "1"
+  );
+  const [range, setRange] = useState<RangePreset>(() => parseRangeParam(searchParams.get("range"), "all"));
+  const [customRange, setCustomRange] = useState<CustomYearRange>(() => ({
+    fromYear: parseYearRangeParam(searchParams.get("from_year"), now.getFullYear()),
+    toYear: parseYearRangeParam(searchParams.get("to_year"), now.getFullYear()),
+  }));
   const [sort, setSort] = useState<TransactionSort>("date_desc");
   const [page, setPage] = useState(1);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -54,6 +79,7 @@ export function ReportsPage() {
   const { data: report, isLoading: isReportLoading, error: reportError } = useCategorySpendingReport(categoryId, startDate, endDate);
   const { data: transactions, isLoading: isTransactionsLoading } = useTransactions({
     category_id: categoryId ?? undefined,
+    include_subcategories: includeSubcategories,
     start_date: startDate,
     end_date: endDate,
     sort,
@@ -96,6 +122,7 @@ export function ReportsPage() {
             value={categoryId ?? ""}
             onChange={(event) => {
               setCategoryId(Number(event.target.value));
+              setIncludeSubcategories(false);
               setPage(1);
             }}
           >
@@ -153,6 +180,7 @@ export function ReportsPage() {
         selectedCategoryId={categoryId}
         onSelectCategory={(id) => {
           setCategoryId(id);
+          setIncludeSubcategories(true);
           setPage(1);
         }}
       />}

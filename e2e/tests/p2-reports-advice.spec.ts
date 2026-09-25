@@ -70,7 +70,10 @@ test('reports, capital, advice and ROI agree and never mask missing FX as zero',
     await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ }).first()).toBeVisible();
     await expect(page.getByText(/Нет расходов за выбранный период|No expenses for the selected period/)).toHaveCount(0);
     await page.goto('/cash-flow');
-    await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ })).toBeVisible();
+    // Same as Reports above (see its own .first()) — the chart and each of
+    // the two per-kind category lists (see docs/tasks/cash-flow-analysis.md)
+    // now surface this error independently.
+    await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ }).first()).toBeVisible();
     await page.goto('/advice');
     await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ })).toBeVisible();
   } finally {

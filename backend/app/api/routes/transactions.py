@@ -114,6 +114,13 @@ async def list_transactions(
     end_date: date_ | None = Query(default=None),
     account_id: int | None = None,
     category_id: int | None = None,
+    # Opt-in: a category ranking (see reports_service.get_category_ranking_report)
+    # rolls a top-level category's own transactions together with its direct
+    # subcategories' — so a link from a ranking row must match the same set,
+    # not just the exact id, or subcategory-only transactions vanish from the
+    # table under it. Off by default so every other caller (e.g. picking a
+    # category by hand from Reports' own dropdown) keeps today's exact match.
+    include_subcategories: bool = False,
     tag_id: int | None = None,
     type: TransactionType | None = None,
     search: str | None = Query(default=None, min_length=1, max_length=255),
@@ -145,8 +152,17 @@ async def list_transactions(
         # category lives on its split lines instead, so filtering by exact
         # column match alone would silently drop it from a category filter
         # it genuinely belongs to.
+        category_ids: list[int] = [category_id]
+        if include_subcategories:
+            # Same expansion as get_category_spending_report (reports_service.py)
+            # — direct children only, categories are one level deep.
+            child_ids = (
+                await session.execute(select(Category.id).where(Category.parent_id == category_id))
+            ).scalars().all()
+            category_ids.extend(child_ids)
         category_filter = or_(
-            Transaction.category_id == category_id, Transaction.splits.any(TransactionSplit.category_id == category_id)
+            Transaction.category_id.in_(category_ids),
+            Transaction.splits.any(TransactionSplit.category_id.in_(category_ids)),
         )
         stmt = stmt.where(category_filter)
         count_stmt = count_stmt.where(category_filter)

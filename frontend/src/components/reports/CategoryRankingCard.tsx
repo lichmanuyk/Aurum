@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { SquareDivide } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
@@ -11,16 +12,31 @@ import type { CategoryRankingItem } from "@/types";
 interface CategoryRankingCardProps {
   items: CategoryRankingItem[];
   isLoading: boolean;
-  selectedCategoryId: number | null;
-  onSelectCategory: (categoryId: number) => void;
+  /** Overrides the default "Top categories for period" heading — Cash Flow
+   * uses this for its separate income/expense lists. */
+  title?: string;
+  emptyMessage?: string;
+  /** Reports' own usage: clicking a row selects the category in place
+   * (highlighted via `selectedCategoryId`). Mutually exclusive with
+   * `linkTo` below — a row is either a same-page selector or a link out,
+   * never both. */
+  selectedCategoryId?: number | null;
+  onSelectCategory?: (categoryId: number) => void;
+  /** Cash Flow's own usage: clicking a row navigates to Reports with the
+   * category (and Cash Flow's own period) carried over as query params, so
+   * the destination survives a reload — see CashFlowPage.tsx. */
+  linkTo?: (categoryId: number) => string;
 }
 
-/** Ranks every expense category by total spent over the currently selected
+/** Ranks every category of one kind by total over the currently selected
  * period — unlike the Dashboard breakdown (locked to one month) or the
  * detail chart below (locked to one category), this is "which category
- * costs the most" across the whole range at once. Clicking a row drills
- * into that category in the detail chart/transaction list below. */
-export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSelectCategory }: CategoryRankingCardProps) {
+ * costs/earns the most" across the whole range at once. Reused by both
+ * Reports (select a category in place) and Cash Flow (link out to
+ * Reports) — see `linkTo` above. */
+export function CategoryRankingCard({
+  items, isLoading, title, emptyMessage, selectedCategoryId, onSelectCategory, linkTo,
+}: CategoryRankingCardProps) {
   const { t } = useTranslation();
   const { formatCurrency } = useSectionFormat();
   // The subcategory breakdown lives in a modal, not expanded inline — a
@@ -37,20 +53,55 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
     ? items.find((item) => item.category_id === breakdownCategoryId) ?? null
     : null;
 
+  const rowContent = (item: CategoryRankingItem, index: number) => {
+    const Icon = getCategoryIcon(item.icon);
+    return (
+      <>
+        <span className="w-4 shrink-0 text-right text-xs tabular-nums text-text-muted">{index + 1}</span>
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: `${item.color}26` }}
+        >
+          <Icon size={15} style={{ color: item.color }} />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
+          {translateCategoryName(item.name)}
+        </span>
+        {/* The bar is a decorative width preview — safe to drop on a phone.
+            The percentage itself is required at every width (each list's
+            share of its own kind), so it stays outside the `sm:flex` gate
+            that hides the bar. */}
+        <span className="hidden w-16 shrink-0 items-center sm:flex">
+          <span className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+            <span
+              className="block h-full rounded-full"
+              style={{ width: `${item.percent}%`, backgroundColor: item.color }}
+            />
+          </span>
+        </span>
+        <span className="w-9 shrink-0 text-right text-xs text-text-muted tabular-nums">
+          {item.percent.toFixed(0)}%
+        </span>
+        <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
+          {formatCurrency(item.amount)}
+        </span>
+      </>
+    );
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("reports.categoryRankingTitle")}</CardTitle>
+        <CardTitle>{title ?? t("reports.categoryRankingTitle")}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
         ) : items.length === 0 ? (
-          <p className="py-10 text-center text-sm text-text-muted">{t("reports.noRankingData")}</p>
+          <p className="py-10 text-center text-sm text-text-muted">{emptyMessage ?? t("reports.noRankingData")}</p>
         ) : (
           <ul className="divide-y divide-gridline">
             {items.map((item, index) => {
-              const Icon = getCategoryIcon(item.icon);
               const isSelected = item.category_id === selectedCategoryId;
               const hasChildren = item.children.length > 0;
               return (
@@ -76,36 +127,19 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
                         </button>
                       )}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => onSelectCategory(item.category_id)}
-                      className="flex flex-1 items-center gap-3 py-2.5 text-left"
-                    >
-                      <span className="w-4 shrink-0 text-right text-xs tabular-nums text-text-muted">{index + 1}</span>
-                      <span
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                        style={{ backgroundColor: `${item.color}26` }}
+                    {linkTo ? (
+                      <Link to={linkTo(item.category_id)} className="flex flex-1 items-center gap-3 py-2.5 text-left">
+                        {rowContent(item, index)}
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onSelectCategory?.(item.category_id)}
+                        className="flex flex-1 items-center gap-3 py-2.5 text-left"
                       >
-                        <Icon size={15} style={{ color: item.color }} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
-                        {translateCategoryName(item.name)}
-                      </span>
-                      <span className="hidden w-24 shrink-0 items-center gap-2 sm:flex">
-                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-                          <span
-                            className="block h-full rounded-full"
-                            style={{ width: `${item.percent}%`, backgroundColor: item.color }}
-                          />
-                        </span>
-                        <span className="w-9 shrink-0 text-right text-xs text-text-muted tabular-nums">
-                          {item.percent.toFixed(0)}%
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
-                        {formatCurrency(item.amount)}
-                      </span>
-                    </button>
+                        {rowContent(item, index)}
+                      </button>
+                    )}
                   </div>
                 </li>
               );
