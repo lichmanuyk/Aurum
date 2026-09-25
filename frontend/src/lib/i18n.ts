@@ -87,7 +87,7 @@ const ru = {
   "netWorth.assetClass.vehicles": "Транспорт",
   "netWorth.assetClass.precious_metals": "Драгметаллы",
   "netWorth.assetClass.other": "Другое",
-  "netWorth.assetClass.cash": "Наличные",
+  "netWorth.assetClass.cash": "Счета и наличные",
 
   "netWorth.capitalRole.income": "Доходный",
   "netWorth.capitalRole.neutral": "Нейтральный",
@@ -654,7 +654,7 @@ const en: Record<keyof typeof ru, string> = {
   "netWorth.assetClass.vehicles": "Vehicles",
   "netWorth.assetClass.precious_metals": "Precious metals",
   "netWorth.assetClass.other": "Other",
-  "netWorth.assetClass.cash": "Cash",
+  "netWorth.assetClass.cash": "Accounts and cash",
 
   "netWorth.capitalRole.income": "Income",
   "netWorth.capitalRole.neutral": "Neutral",
