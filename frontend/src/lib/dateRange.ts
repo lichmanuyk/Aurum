@@ -31,3 +31,29 @@ export function computeRange(
     }
   }
 }
+
+/** Builds a "/reports?..." link that survives a reload — see
+ * ReportsPage.tsx's own `useSearchParams()` read on mount, and
+ * CashFlowPage.tsx's category lists (the one place that links out today). */
+export function reportsLinkFor(categoryId: number, range: RangePreset, custom: CustomYearRange): string {
+  const params = new URLSearchParams({ category_id: String(categoryId), range });
+  if (range === "custom") {
+    params.set("from_year", String(custom.fromYear));
+    params.set("to_year", String(custom.toYear));
+  }
+  return `/reports?${params.toString()}`;
+}
+
+/** The inverse of reportsLinkFor's range params — parses a `range` query
+ * param, falling back to `fallback` for anything missing or invalid (e.g.
+ * a hand-edited URL), same defensive shape as TransactionsPage.tsx's own
+ * parseYearParam/parseMonthParam. */
+export function parseRangeParam(value: string | null, fallback: RangePreset): RangePreset {
+  return value === "all" || value === "this_year" || value === "5y" || value === "custom" ? value : fallback;
+}
+
+export function parseYearRangeParam(value: string | null, fallback: number): number {
+  if (value === null) return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}

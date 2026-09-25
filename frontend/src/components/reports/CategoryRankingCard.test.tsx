@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { MemoryRouter } from "react-router-dom";
 import { CategoryRankingCard } from "./CategoryRankingCard";
 import { setCurrency } from "@/lib/i18n";
 import type { CategoryRankingItem } from "@/types";
@@ -82,4 +83,30 @@ it("closes the breakdown instead of showing stale data once its category is no l
   ));
 
   expect(container.querySelector('[role="dialog"]')).toBeNull();
+});
+
+it("renders rows as links to Reports with the category and period, not a local selector, when linkTo is given", () => {
+  setCurrency("USD");
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const onSelectCategory = () => { throw new Error("should not be called in linkTo mode"); };
+
+  flushSync(() => root.render(
+    <MemoryRouter>
+      <CategoryRankingCard
+        items={[makeItem({ category_id: 7 })]}
+        isLoading={false}
+        onSelectCategory={onSelectCategory}
+        linkTo={(categoryId) => `/reports?category_id=${categoryId}&range=this_year`}
+      />
+    </MemoryRouter>
+  ));
+
+  const link = container.querySelector<HTMLAnchorElement>("a[href]");
+  expect(link).not.toBeNull();
+  expect(link!.getAttribute("href")).toBe("/reports?category_id=7&range=this_year");
+  // Clicking navigates via the anchor's own href — it must not also fall
+  // through to the same-page selector callback.
+  flushSync(() => link!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
 });

@@ -542,6 +542,11 @@ const ru = {
   "cashFlow.expense": "Расход",
   "cashFlow.net": "Баланс",
   "cashFlow.noData": "Нет данных за выбранный период.",
+  "cashFlow.totalHint": "Итог показан за весь выбранный период, независимо от скрытых рядов.",
+  "cashFlow.bothRowsHidden": "Доходы и расходы скрыты — включите один из рядов выше, чтобы увидеть график.",
+  "cashFlow.incomeCategoriesTitle": "Доходы по категориям",
+  "cashFlow.expenseCategoriesTitle": "Расходы по категориям",
+  "cashFlow.noIncomeCategories": "Нет доходов за выбранный период.",
 
   // Default seeded categories (backend/app/db/seed.py) — translateCategoryName()
   // matches on the exact seeded English name and falls through unchanged
@@ -1117,6 +1122,11 @@ const en: Record<keyof typeof ru, string> = {
   "cashFlow.expense": "Expense",
   "cashFlow.net": "Net",
   "cashFlow.noData": "No data for the selected period.",
+  "cashFlow.totalHint": "The total is for the whole selected period, regardless of which rows are hidden.",
+  "cashFlow.bothRowsHidden": "Income and expenses are both hidden — turn one back on above to see the chart.",
+  "cashFlow.incomeCategoriesTitle": "Income by category",
+  "cashFlow.expenseCategoriesTitle": "Expenses by category",
+  "cashFlow.noIncomeCategories": "No income for the selected period.",
 
   "category.housingUtilities": "Housing & Utilities",
   "category.groceries": "Groceries",
