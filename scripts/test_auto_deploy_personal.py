@@ -13,11 +13,11 @@ class AutoDeployTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.main = Path(self.temp.name) / 'Aurum'
-        self.root = self.main / '.deploy/personal'
+        self.root = self.main / 'personal-deploy'
         self.root.mkdir(parents=True)
-        (self.main / '.env.personal').write_text('AURUM_WEB_PORT=3003\nAURUM_POSTGRES_DB=aurum_personal\nAURUM_BIND_ADDRESS=127.0.0.1\n')
+        (self.main / 'personal.env').write_text('AURUM_WEB_PORT=3003\nAURUM_POSTGRES_DB=aurum_personal\nAURUM_BIND_ADDRESS=127.0.0.1\n')
         env = self.root / '.env.personal'
-        env.symlink_to(self.main / '.env.personal')
+        env.symlink_to(self.main / 'personal.env')
         for name, value in [('ROOT', self.root), ('ENV', env)]:
             patcher = patch.object(deployer, name, value)
             patcher.start()

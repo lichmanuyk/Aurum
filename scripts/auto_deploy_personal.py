@@ -43,8 +43,8 @@ def health():
 
 
 def deploy(force=False):
-    if not ENV.is_symlink() or ENV.resolve() != (ROOT.parent.parent / '.env.personal').resolve():
-        raise RuntimeError('Deployment .env.personal must link to the original personal configuration')
+    if not ENV.is_symlink() or ENV.resolve() != (ROOT.parent / 'personal.env').resolve():
+        raise RuntimeError('Deployment .env.personal must link to the protected personal configuration')
     config = settings()
     if (config.get('AURUM_WEB_PORT'), config.get('AURUM_POSTGRES_DB'), config.get('AURUM_BIND_ADDRESS')) != ('3003', 'aurum_personal', '127.0.0.1'):
         raise RuntimeError('Personal deployment config must use port 3003 and the aurum_personal database')
