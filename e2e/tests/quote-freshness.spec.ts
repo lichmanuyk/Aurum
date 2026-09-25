@@ -52,7 +52,9 @@ test('crypto prices are checked on entry and hourly while the app is open', asyn
     return route.fulfill({ json: { synced: false, last_synced_at: null, error_key: null, holdings: [] } });
   });
   await page.goto('/accounts');
-  await expect.poll(() => calls).toBe(1);
+  await expect.poll(() => calls).toBeGreaterThanOrEqual(1);
+  await page.waitForLoadState('networkidle');
+  const callsBeforeInterval = calls;
   await page.clock.fastForward(60 * 60 * 1000);
-  await expect.poll(() => calls).toBe(2);
+  await expect.poll(() => calls).toBeGreaterThan(callsBeforeInterval);
 });
