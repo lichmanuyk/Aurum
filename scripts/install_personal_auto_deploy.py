@@ -6,25 +6,44 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKTREE = ROOT / '.deploy/personal'
+WORKTREE = Path.home() / 'Library/Application Support/Aurum/personal-deploy'
+CONFIG = WORKTREE.parent / 'personal.env'
 LABEL = 'com.aurum.personal-auto-deploy'
 
 
 def main():
     if sys.platform != 'darwin':
         raise RuntimeError('This installer is for the macOS host')
-    if not (ROOT / '.env.personal').is_file():
+    source_config = ROOT / '.env.personal'
+    if not source_config.is_file():
         raise RuntimeError('The existing .env.personal is required')
     if not WORKTREE.exists():
         WORKTREE.parent.mkdir(mode=0o700, exist_ok=True)
-        subprocess.run(['git', 'worktree', 'add', '--detach', str(WORKTREE), 'origin/personal'],
-                       cwd=ROOT, check=True)
+        remote = subprocess.run(['git', 'remote', 'get-url', 'origin'], cwd=ROOT, check=True,
+                                capture_output=True, text=True).stdout.strip()
+        subprocess.run(['git', 'clone', '--single-branch', '--branch', 'personal', remote, str(WORKTREE)], check=True)
     if not (WORKTREE / 'scripts/auto_deploy_personal.py').is_file():
         raise RuntimeError('Update origin/personal before installing auto-deploy')
+    if not CONFIG.exists():
+        temporary = CONFIG.with_suffix('.partial')
+        with temporary.open('wb') as file:
+            file.write(source_config.read_bytes())
+            file.flush()
+            os.fsync(file.fileno())
+        temporary.chmod(0o600)
+        temporary.replace(CONFIG)
+    if source_config.read_bytes() != CONFIG.read_bytes():
+        raise RuntimeError('The existing and deployment .env.personal differ; refusing to choose one')
+    if not source_config.is_symlink():
+        temporary = ROOT / '.env.personal.autodeploy-link'
+        temporary.symlink_to(CONFIG)
+        temporary.replace(source_config)
+    if source_config.resolve() != CONFIG.resolve():
+        raise RuntimeError('The original configuration does not link to the protected copy')
     config_link = WORKTREE / '.env.personal'
     if not config_link.exists():
-        config_link.symlink_to(ROOT / '.env.personal')
-    if config_link.resolve() != (ROOT / '.env.personal').resolve():
+        config_link.symlink_to(CONFIG)
+    if config_link.resolve() != CONFIG.resolve():
         raise RuntimeError('Deployment config points to another file')
 
     # First deployment catches the currently running instance up to personal.
