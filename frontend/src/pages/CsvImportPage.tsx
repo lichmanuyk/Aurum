@@ -65,6 +65,8 @@ const HEADER_GUESSES: Record<keyof Mapping, string[]> = {
   merchant: ["merchant", "payee", "получатель"],
   notes: ["notes", "заметка", "примечание"],
   category: ["category", "категория"],
+  transferAccount: ["destination account", "to account", "счёт получателя", "счет получателя"],
+  destinationAmount: ["destination amount", "received amount", "получено", "зачислено"],
 };
 
 function guessMapping(headerRow: string[]): Mapping {
@@ -76,6 +78,8 @@ function guessMapping(headerRow: string[]): Mapping {
     merchant: guess(HEADER_GUESSES.merchant),
     notes: guess(HEADER_GUESSES.notes),
     category: guess(HEADER_GUESSES.category),
+    transferAccount: guess(HEADER_GUESSES.transferAccount),
+    destinationAmount: guess(HEADER_GUESSES.destinationAmount),
   };
 }
 
@@ -113,7 +117,7 @@ export function CsvImportPage() {
   const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
   const [encoding, setEncoding] = useState<Encoding>("utf-8");
   const [presetChoice, setPresetChoice] = useState<string>(PRESET_AUTO);
-  const [mapping, setMapping] = useState<Mapping>({ date: "", amount: "", description: "", merchant: "", notes: "", category: "" });
+  const [mapping, setMapping] = useState<Mapping>({ date: "", amount: "", description: "", merchant: "", notes: "", category: "", transferAccount: "", destinationAmount: "" });
   const [dateFormat, setDateFormat] = useState<DateFormat>("YYYY-MM-DD");
   const [amountFormat, setAmountFormat] = useState<AmountFormat>("auto");
   const [includeDuplicates, setIncludeDuplicates] = useState(false);
@@ -233,6 +237,8 @@ export function CsvImportPage() {
     const merchantIdx = mapping.merchant ? headers.indexOf(mapping.merchant) : -1;
     const notesIdx = mapping.notes ? headers.indexOf(mapping.notes) : -1;
     const categoryIdx = mapping.category ? headers.indexOf(mapping.category) : -1;
+    const transferAccountIdx = mapping.transferAccount ? headers.indexOf(mapping.transferAccount) : -1;
+    const destinationAmountIdx = mapping.destinationAmount ? headers.indexOf(mapping.destinationAmount) : -1;
 
     const freshRows: TransactionInput[] = [];
     const duplicateRows: TransactionInput[] = [];
@@ -246,6 +252,7 @@ export function CsvImportPage() {
       const rawMerchant = merchantIdx >= 0 ? (cells[merchantIdx] ?? "").trim() : "";
       const rawNotes = notesIdx >= 0 ? (cells[notesIdx] ?? "").trim() : "";
       const rawCategory = categoryIdx >= 0 ? (cells[categoryIdx] ?? "").trim() : "";
+      const isTransfer = /^(transfer|expensetransfer|incometransfer|перевод|перевод между счетами)$/i.test(rawCategory);
 
       // Bank-profile row filter first (e.g. T-Bank's "Статус" = FAILED):
       // a declined payment parses perfectly well as a date + amount, and
@@ -279,13 +286,21 @@ export function CsvImportPage() {
       }
 
       const type = resolveType(Number(amount));
+      const targetName = transferAccountIdx >= 0 ? (cells[transferAccountIdx] ?? "").trim() : "";
+      const target = isTransfer ? accounts?.find((a) => a.name.trim().toLowerCase() === targetName.toLowerCase() && a.id !== Number(accountId)) : undefined;
+      const received = destinationAmountIdx >= 0 ? parseDecimalAmount(cells[destinationAmountIdx] ?? "", amountFormat) : null;
+      if (isTransfer && (type !== "expense" || !target || (target.currency !== nativeCurrency && (!received || Number(received) <= 0)))) {
+        skippedRows.push({ row: rowNumber, reason: t("transactions.import.ambiguousTransfer") });
+        return;
+      }
       const categoryId = rawCategory ? categoryLookup[type].get(rawCategory.toLowerCase()) ?? null : null;
 
       const candidate: TransactionInput = {
         account_id: Number(accountId),
-        category_id: categoryId,
-        transfer_account_id: null,
-        type,
+        category_id: isTransfer ? null : categoryId,
+        transfer_account_id: target?.id ?? null,
+        destination_amount: isTransfer && target?.currency !== nativeCurrency ? received?.replace(/^-/, "") : null,
+        type: isTransfer ? "transfer" : type,
         amount: amount.replace(/^-/, ""),
         description,
         merchant: rawMerchant || null,
@@ -592,6 +607,15 @@ export function CsvImportPage() {
                   </p>
                 )}
               </div>
+              {(["transferAccount", "destinationAmount"] as const).map((field) => (
+                <div key={field}>
+                  <Label htmlFor={`map-${field}`}>{t(`transactions.import.${field}Column`)}</Label>
+                  <Select id={`map-${field}`} value={mapping[field]} onChange={(event) => setMapping((prev) => ({ ...prev, [field]: event.target.value }))}>
+                    <option value={NONE}>{t("transactions.import.notMapped")}</option>
+                    {headers.map((header) => <option key={header} value={header}>{header}</option>)}
+                  </Select>
+                </div>
+              ))}
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -707,7 +731,7 @@ export function CsvImportPage() {
                       duplicate check still serves stale data, and importing
                       against that would wave duplicates straight through. */}
                   <Button
-                    disabled={valid.length === 0 || bulkCreate.isPending || existingTransactions.isFetching}
+                    disabled={valid.length === 0 || bulkCreate.isPending || existingTransactions.isFetching || existingTransactions.isError}
                     onClick={() => void handleImport()}
                   >
                     {bulkCreate.isPending

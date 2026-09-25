@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyPresetMapping, detectPreset, findPreset, normalizeHeader, rowFilterRejection, type ImportMapping } from "@/lib/bankPresets";
 import { parseAmount, parseCsv, parseDateWithFormat } from "@/lib/csv";
 
-const EMPTY: ImportMapping = { date: "", amount: "", description: "", merchant: "", notes: "", category: "" };
+const EMPTY: ImportMapping = { date: "", amount: "", description: "", merchant: "", notes: "", category: "", transferAccount: "", destinationAmount: "" };
 
 // Header rows as the banks actually emit them (see the per-preset comments in
 // lib/bankPresets.ts for where each export comes from).
