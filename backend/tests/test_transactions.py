@@ -629,13 +629,10 @@ async def test_update_rejects_splits_not_summing_to_the_new_amount(client: Async
 
 
 async def test_update_of_unrelated_field_tolerates_a_split_whose_category_was_deleted(
-    client: AsyncClient, account_id, categories
+    client: AsyncClient, account_id, categories, test_sessionmaker
 ):
-    """Same lesson as the transfer_account_id/deleted-account case: deleting
-    a category SET NULLs any split that pointed at it, and an edit to some
-    other field on the transaction must not be blocked by that pre-existing
-    state — the split's own category was never re-submitted, so nothing here
-    needs it to still exist."""
+    """Legacy splits may already have null categories from before deletion
+    was guarded. Editing an unrelated field must still accept those rows."""
     groceries = categories["Groceries"]["id"]
     deletable = await _subcategory(client, groceries, "Deletable")
     created = await client.post(
@@ -651,6 +648,11 @@ async def test_update_of_unrelated_field_tolerates_a_split_whose_category_was_de
         ),
     )
     txn_id = created.json()["id"]
+    from sqlalchemy import text
+
+    async with test_sessionmaker() as session:
+        await session.execute(text("UPDATE transaction_splits SET category_id = NULL WHERE category_id = :id"), {"id": deletable})
+        await session.commit()
     assert (await client.delete(f"/categories/{deletable}")).status_code == 204
 
     resp = await client.patch(f"/transactions/{txn_id}", json={"description": "renamed"})
