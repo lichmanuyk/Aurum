@@ -67,16 +67,20 @@ export function CategoryRankingCard({
         <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
           {translateCategoryName(item.name)}
         </span>
-        <span className="hidden w-24 shrink-0 items-center gap-2 sm:flex">
-          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+        {/* The bar is a decorative width preview — safe to drop on a phone.
+            The percentage itself is required at every width (each list's
+            share of its own kind), so it stays outside the `sm:flex` gate
+            that hides the bar. */}
+        <span className="hidden w-16 shrink-0 items-center sm:flex">
+          <span className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
             <span
               className="block h-full rounded-full"
               style={{ width: `${item.percent}%`, backgroundColor: item.color }}
             />
           </span>
-          <span className="w-9 shrink-0 text-right text-xs text-text-muted tabular-nums">
-            {item.percent.toFixed(0)}%
-          </span>
+        </span>
+        <span className="w-9 shrink-0 text-right text-xs text-text-muted tabular-nums">
+          {item.percent.toFixed(0)}%
         </span>
         <span className="shrink-0 text-sm font-medium tabular-nums text-text-primary">
           {formatCurrency(item.amount)}

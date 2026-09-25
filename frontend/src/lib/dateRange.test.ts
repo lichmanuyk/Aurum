@@ -1,15 +1,15 @@
 import { expect, it } from "vitest";
 import { parseRangeParam, parseYearRangeParam, reportsLinkFor } from "./dateRange";
 
-it("builds a reports link carrying the category and preset range, without year params for a non-custom preset", () => {
+it("builds a reports link carrying the category, preset range and the subcategory rollup flag, without year params for a non-custom preset", () => {
   expect(reportsLinkFor(42, "this_year", { fromYear: 2020, toYear: 2020 })).toBe(
-    "/reports?category_id=42&range=this_year"
+    "/reports?category_id=42&range=this_year&include_subcategories=1"
   );
 });
 
 it("builds a reports link carrying from_year/to_year only for the custom preset", () => {
   expect(reportsLinkFor(42, "custom", { fromYear: 2018, toYear: 2021 })).toBe(
-    "/reports?category_id=42&range=custom&from_year=2018&to_year=2021"
+    "/reports?category_id=42&range=custom&include_subcategories=1&from_year=2018&to_year=2021"
   );
 });
 

@@ -48,6 +48,15 @@ export function ReportsPage() {
   const [searchParams] = useSearchParams();
   const categoryIdFromUrl = useRef(parseCategoryIdParam(searchParams.get("category_id"))).current;
   const [categoryId, setCategoryId] = useState<number | null>(categoryIdFromUrl);
+  // Mirrors reportsLinkFor's own `include_subcategories=1` — a category
+  // ranking row's id is always top-level and its amount already rolls up
+  // direct subcategories (see category_rollup.py), so the table below must
+  // match the same set for a link (or an in-page ranking click, further
+  // down) to not lose subcategory-only transactions. The dropdown above
+  // picks one exact category by hand and stays exact-match, same as before.
+  const [includeSubcategories, setIncludeSubcategories] = useState<boolean>(
+    () => searchParams.get("include_subcategories") === "1"
+  );
   const [range, setRange] = useState<RangePreset>(() => parseRangeParam(searchParams.get("range"), "all"));
   const [customRange, setCustomRange] = useState<CustomYearRange>(() => ({
     fromYear: parseYearRangeParam(searchParams.get("from_year"), now.getFullYear()),
@@ -70,6 +79,7 @@ export function ReportsPage() {
   const { data: report, isLoading: isReportLoading, error: reportError } = useCategorySpendingReport(categoryId, startDate, endDate);
   const { data: transactions, isLoading: isTransactionsLoading } = useTransactions({
     category_id: categoryId ?? undefined,
+    include_subcategories: includeSubcategories,
     start_date: startDate,
     end_date: endDate,
     sort,
@@ -112,6 +122,7 @@ export function ReportsPage() {
             value={categoryId ?? ""}
             onChange={(event) => {
               setCategoryId(Number(event.target.value));
+              setIncludeSubcategories(false);
               setPage(1);
             }}
           >
@@ -169,6 +180,7 @@ export function ReportsPage() {
         selectedCategoryId={categoryId}
         onSelectCategory={(id) => {
           setCategoryId(id);
+          setIncludeSubcategories(true);
           setPage(1);
         }}
       />}

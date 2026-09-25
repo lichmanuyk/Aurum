@@ -706,3 +706,86 @@ async def test_delete_transaction_cascades_its_splits(client: AsyncClient, accou
     # category filter would still find a (now-orphaned) match.
     resp = await client.get("/transactions", params={"category_id": sweets})
     assert resp.json()["total"] == 0
+
+
+async def test_category_filter_is_exact_by_default_even_with_subcategory_transactions(
+    client: AsyncClient, account_id, categories
+):
+    """Today's plain behavior (see docs/tasks/cash-flow-analysis.md's review
+    fixes) — a bare `category_id` never reaches into subcategories unless
+    `include_subcategories` says so, so every existing caller (e.g. picking
+    an exact category by hand from Reports' own dropdown) keeps working
+    exactly as before."""
+    groceries = categories["Groceries"]["id"]
+    sweets = await _subcategory(client, groceries, "Sweets")
+    await client.post("/transactions", json=_txn(account_id, category_id=groceries, description="parent-only"))
+    await client.post("/transactions", json=_txn(account_id, category_id=sweets, description="child-only"))
+
+    resp = await client.get("/transactions", params={"category_id": groceries})
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["description"] == "Parent-only"
+
+
+async def test_include_subcategories_matches_children_and_their_split_lines_without_duplicates(
+    client: AsyncClient, account_id, categories
+):
+    """A category ranking row's own amount (see
+    reports_service.get_category_ranking_report/category_rollup.py) already
+    rolls a top-level category together with its direct subcategories and
+    their split lines — the transactions table a ranking row links to must
+    surface that exact same set, or subcategory-only rows (including a
+    split that never touches the parent id at all) silently vanish."""
+    groceries = categories["Groceries"]["id"]
+    sweets = await _subcategory(client, groceries, "Sweets")
+    unrelated = categories["Salary"]["id"]
+
+    await client.post("/transactions", json=_txn(account_id, category_id=groceries, description="parent-only"))
+    await client.post("/transactions", json=_txn(account_id, category_id=sweets, description="child-only"))
+    await client.post(
+        "/transactions",
+        json=_txn(
+            account_id, amount="100.00", category_id=None, description="split-parent-and-child",
+            splits=[{"category_id": groceries, "amount": "70.00"}, {"category_id": sweets, "amount": "30.00"}],
+        ),
+    )
+    await client.post("/transactions", json=_txn(account_id, type="income", amount="500.00", category_id=unrelated))
+
+    resp = await client.get("/transactions", params={"category_id": groceries, "include_subcategories": True})
+    body = resp.json()
+    assert body["total"] == 3  # not 4 (unrelated excluded) and not more (no per-split-line duplication)
+    descriptions = {item["description"] for item in body["items"]}
+    assert descriptions == {"Parent-only", "Child-only", "Split-parent-and-child"}
+    ids = [item["id"] for item in body["items"]]
+    assert len(ids) == len(set(ids))  # the split's two lines didn't turn one transaction into two rows
+
+
+async def test_include_subcategories_pagination_has_no_overlap_or_duplicates(
+    client: AsyncClient, account_id, categories
+):
+    groceries = categories["Groceries"]["id"]
+    sweets = await _subcategory(client, groceries, "Sweets")
+    for day in range(1, 13):
+        category_id = groceries if day % 2 == 0 else sweets
+        await client.post(
+            "/transactions",
+            json=_txn(account_id, category_id=category_id, date=f"2025-04-{day:02d}", description=f"txn-{day}"),
+        )
+
+    seen_ids: set[int] = set()
+    page, total = 1, None
+    while True:
+        resp = await client.get(
+            "/transactions",
+            params={"category_id": groceries, "include_subcategories": True, "page": page, "page_size": 5, "sort": "date_desc"},
+        )
+        body = resp.json()
+        total = body["total"]
+        if not body["items"]:
+            break
+        for item in body["items"]:
+            assert item["id"] not in seen_ids, "pagination must not repeat an item across pages"
+            seen_ids.add(item["id"])
+        page += 1
+
+    assert total == 12
+    assert len(seen_ids) == 12

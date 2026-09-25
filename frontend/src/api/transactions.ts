@@ -10,6 +10,11 @@ export interface TransactionFilters {
   end_date?: string;
   account_id?: number;
   category_id?: number;
+  // See backend/app/api/routes/transactions.py — matches the same rollup a
+  // category ranking row's own amount represents (its top-level total plus
+  // direct subcategories), so a link from a ranking row doesn't lose
+  // subcategory-only transactions from the table under it.
+  include_subcategories?: boolean;
   tag_id?: number;
   type?: string;
   search?: string;

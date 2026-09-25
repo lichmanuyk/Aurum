@@ -109,13 +109,16 @@ test("income and expense category lists sort descending with per-list percentage
   }
 });
 
-test("toggles and category lists work on a narrow (phone-width) viewport", async ({ page, request }) => {
+test("toggles and category lists — including each row's own percentage — work on a narrow (phone-width) viewport without horizontal overflow", async ({ page, request }) => {
   const snapshot = await (await request.get("/api/backup/export")).json();
   try {
     const accountId = await getDefaultAccountId(request);
     const salaryId = await getCategoryId(request, "Salary");
+    const giftResp = await request.post("/api/categories", { data: { name: "Gifts CF narrow", kind: "income", color: "#7a869a" } });
+    const giftId = (await giftResp.json()).id;
     const today = new Date().toISOString().slice(0, 10);
-    await createTransaction(request, { account_id: accountId, category_id: salaryId, type: "income", amount: "500.00", description: "narrow-fixture-income", date: today });
+    await createTransaction(request, { account_id: accountId, category_id: salaryId, type: "income", amount: "700.00", description: "narrow-fixture-income-big", date: today });
+    await createTransaction(request, { account_id: accountId, category_id: giftId, type: "income", amount: "300.00", description: "narrow-fixture-income-small", date: today });
 
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto("/cash-flow");
@@ -126,7 +129,81 @@ test("toggles and category lists work on a narrow (phone-width) viewport", async
     await expect(incomeToggle).toHaveAttribute("aria-pressed", "false");
 
     await expect(page.getByRole("heading", { name: "Доходы по категориям" })).toBeVisible();
-    await expect(page.getByText("Зарплата")).toBeVisible();
+    const incomeCard = page.locator("div.rounded-xl").filter({ has: page.getByRole("heading", { name: "Доходы по категориям" }) });
+    const incomeRows = incomeCard.locator("li");
+    // Each list's own share stays visible at phone width (only the
+    // decorative bar next to it is allowed to drop) — see
+    // CategoryRankingCard.tsx.
+    await expect(incomeRows.first()).toContainText("Зарплата");
+    await expect(incomeRows.first()).toContainText("70%");
+    await expect(incomeRows.nth(1)).toContainText("Gifts CF narrow");
+    await expect(incomeRows.nth(1)).toContainText("30%");
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+  } finally {
+    const restore = await request.post("/api/backup/import", { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});
+
+test("an expense category whose transactions live only in a subcategory still links to all of them from its ranking row", async ({ page, request }) => {
+  const snapshot = await (await request.get("/api/backup/export")).json();
+  try {
+    const accountId = await getDefaultAccountId(request);
+    const groceriesId = await getCategoryId(request, "Groceries");
+    const sweetsResp = await request.post("/api/categories", { data: { name: "Sweets CF", kind: "expense", color: "#7a869a", parent_id: groceriesId } });
+    const sweetsId = (await sweetsResp.json()).id;
+    const today = new Date().toISOString().slice(0, 10);
+    // Groceries itself (the parent, and the id the ranking row carries — see
+    // category_rollup.py) has no direct transaction at all; the only money
+    // is filed under its subcategory.
+    await createTransaction(request, { account_id: accountId, category_id: sweetsId, type: "expense", amount: "45.00", description: "cf-sub-only-expense", date: today });
+
+    await page.goto("/cash-flow");
+    const expenseCard = page.locator("div.rounded-xl").filter({ has: page.getByRole("heading", { name: "Расходы по категориям" }) });
+    const groceriesRow = expenseCard.locator("li").filter({ hasText: "Продукты" });
+    await expect(groceriesRow).toContainText("45");
+
+    await groceriesRow.getByText("Продукты").click();
+    await expect(page).toHaveURL(new RegExp(`/reports\\?category_id=${groceriesId}&range=this_year&include_subcategories=1`));
+    await expect(page.getByText("cf-sub-only-expense")).toBeVisible();
+    await expect(page.getByText(/Транзакций не найдено|No transactions found/)).toHaveCount(0);
+  } finally {
+    const restore = await request.post("/api/backup/import", { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});
+
+test("an income category whose transactions live only in a subcategory keeps showing them after a reload on Reports", async ({ page, request }) => {
+  const snapshot = await (await request.get("/api/backup/export")).json();
+  try {
+    const accountId = await getDefaultAccountId(request);
+    const salaryId = await getCategoryId(request, "Salary");
+    const bonusResp = await request.post("/api/categories", { data: { name: "Bonus CF", kind: "income", color: "#7a869a", parent_id: salaryId } });
+    const bonusId = (await bonusResp.json()).id;
+    const today = new Date().toISOString().slice(0, 10);
+    await createTransaction(request, { account_id: accountId, category_id: bonusId, type: "income", amount: "200.00", description: "cf-sub-only-income", date: today });
+
+    await page.goto("/cash-flow");
+    const incomeCard = page.locator("div.rounded-xl").filter({ has: page.getByRole("heading", { name: "Доходы по категориям" }) });
+    const salaryRow = incomeCard.locator("li").filter({ hasText: "Зарплата" });
+    await expect(salaryRow).toContainText("200");
+
+    await salaryRow.getByText("Зарплата").click();
+    await expect(page).toHaveURL(new RegExp(`/reports\\?category_id=${salaryId}&range=this_year&include_subcategories=1`));
+    await expect(page.getByText("cf-sub-only-income")).toBeVisible();
+
+    // The subcategory rollup isn't just an in-memory click state — the URL
+    // param itself must carry it, or a reload falls back to the exact
+    // (parent-only) filter and the row disappears again.
+    await page.reload();
+    await expect(page).toHaveURL(new RegExp(`/reports\\?category_id=${salaryId}&range=this_year&include_subcategories=1`));
+    await expect(page.locator("#report-category")).toHaveValue(String(salaryId));
+    await expect(page.getByText("cf-sub-only-income")).toBeVisible();
   } finally {
     const restore = await request.post("/api/backup/import", { data: snapshot });
     expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
