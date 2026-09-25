@@ -161,8 +161,8 @@ async def post_recurring(session: AsyncSession, recurring_id: int, destination_a
     # Serialize competing clicks before checking the committed posting date.
     recurring = await _get_or_404(session, recurring_id, lock=True)
     today = date_.today()
-    if not recurring.is_active or recurring.last_posted_date == today:
-        raise HTTPException(409, "Template is inactive or already posted today")
+    if not recurring.is_active or _next_due_date(recurring) > today or recurring.last_posted_date == today:
+        raise HTTPException(409, "Template is inactive or not due yet")
 
     fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes")}
     fields.update(date=today, destination_amount=destination_amount)

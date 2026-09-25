@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 import pytest
 from app.models.enums import RecurringFrequency
+from app.services import recurring_service
 from app.services.recurring_service import _advance
 
 async def template(client, account_id, **changes):
@@ -27,6 +28,31 @@ async def test_posting_is_atomic_and_rejects_double_click(client,account_id):
     assert rows['total']==1 and Decimal(rows['items'][0]['amount'])==10
     assert (await client.get('/recurring')).json()[0]['last_posted_date']==str(date.today())
 
+async def test_monthly_post_waits_for_next_due_date_and_preserves_each_month(client, account_id, monkeypatch):
+    class Clock(date):
+        current = date(2026, 1, 15)
+
+        @classmethod
+        def today(cls):
+            return cls.current
+
+    monkeypatch.setattr(recurring_service, 'date_', Clock)
+    t = await template(client, account_id, anchor_date='2026-01-15')
+    url = f"/recurring/{t['id']}/post"
+    assert (await client.post(url)).status_code == 201
+    assert (await client.post(url)).status_code == 409
+    Clock.current = date(2026, 2, 14)
+    assert (await client.post(url)).status_code == 409
+    assert (await client.get('/recurring')).json()[0]['next_due_date'] == '2026-02-15'
+    Clock.current = date(2026, 2, 15)
+    assert (await client.post(url)).status_code == 201
+    assert (await client.post(url)).status_code == 409
+    rows = (await client.get('/transactions')).json()
+    assert rows['total'] == 2
+    assert sorted(row['date'] for row in rows['items']) == ['2026-01-15', '2026-02-15']
+    assert Decimal((await client.get('/accounts')).json()[0]['balance']) == -20
+    assert (await client.get('/recurring')).json()[0]['next_due_date'] == '2026-03-15'
+
 async def test_inactive_post_cannot_move_money(client,account_id):
     t=await template(client,account_id)
     assert (await client.patch(f"/recurring/{t['id']}",json={'is_active':False})).status_code==200
@@ -38,6 +64,8 @@ async def test_cross_currency_failed_post_preserves_schedule(client,account_id):
     t=await template(client,account_id,type='transfer',transfer_account_id=target)
     assert (await client.post(f"/recurring/{t['id']}/post")).status_code==422
     assert (await client.get('/recurring')).json()[0]['last_posted_date'] is None
+    assert (await client.get('/transactions')).json()['total']==0
+    assert all(Decimal(row['balance'])==0 for row in (await client.get('/accounts')).json())
     response=await client.post(f"/recurring/{t['id']}/post",json={'destination_amount':'9.123456'})
     assert response.status_code==201,response.text
     row=(await client.get('/transactions')).json()['items'][0]

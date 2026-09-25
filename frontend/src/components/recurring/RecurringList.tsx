@@ -72,7 +72,7 @@ export function RecurringList({ items, onPost, onEdit, onDelete, isPosting }: Re
               <button
                 type="button"
                 aria-label={t("recurring.postLabel")}
-                disabled={isPosting}
+                disabled={isPosting || !item.is_due}
                 onClick={() => onPost(item)}
                 className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-success disabled:opacity-50"
               >
