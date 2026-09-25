@@ -39,6 +39,6 @@ async def quote_status(session):
     last = state.last_synced_at if state else None
     missing = sum(h.last_price is None for h in holdings)
     crypto_status = ('empty' if not holdings else 'missing' if missing or last is None else
-                     'stale' if datetime.now(timezone.utc) - last >= timedelta(hours=24) else 'current')
+                     'stale' if datetime.now(timezone.utc) - last >= timedelta(hours=1) else 'current')
     return dict(as_of=today, reporting_currency=settings.currency, fx=items,
                 crypto=dict(status=crypto_status, last_synced_at=last, missing_prices=missing))

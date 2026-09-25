@@ -572,9 +572,9 @@ export interface CryptoPerformanceResponse {
   items: CryptoPerformancePoint[];
 }
 
-// No "24h" — the price history is only as dense as the sync cadence (see
-// services/crypto_service.py's AUTO_REFRESH_INTERVAL), so a 24h chart would
-// be one or two points, not a smooth intraday line.
+// No "24h" — the price history is only as dense as app-open hourly checks
+// (see services/crypto_service.py's AUTO_REFRESH_INTERVAL), so closing the
+// app overnight can leave a 24h chart too sparse to be useful.
 export type CryptoRange = "7d" | "30d" | "90d" | "all";
 
 export interface CryptoHistoryPoint {
@@ -603,4 +603,3 @@ export interface AppSettings {
    * from /api/health, which is served without auth. */
   app_version: string;
 }
-

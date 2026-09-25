@@ -3,12 +3,14 @@ and the lazy/forced price sync. CoinGecko itself is never called in tests —
 services/crypto_service.py's _fetch_market_data is monkeypatched with a
 canned market-data feed instead, same way any external dependency would be.
 """
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
 from httpx import AsyncClient
 
 from app.services import crypto_service
+from app.models.crypto import CryptoSyncState
 from tests.helpers import money
 
 
@@ -176,7 +178,7 @@ async def test_deleting_the_asset_removes_the_crypto_holding_too(client: AsyncCl
     assert resp.json()["holdings"] == []
 
 
-async def test_get_holdings_does_not_resync_within_24_hours(client: AsyncClient, monkeypatch):
+async def test_get_holdings_resyncs_only_after_one_hour(client: AsyncClient, monkeypatch, test_sessionmaker):
     monkeypatch.setattr(crypto_service, "_fetch_market_data", _fake_fetch({"bitcoin": _point("50000")}))
     await _add_bitcoin(client)
 
@@ -184,17 +186,27 @@ async def test_get_holdings_does_not_resync_within_24_hours(client: AsyncClient,
 
     async def counting_fetch(coingecko_ids, vs_currency):
         calls.append(coingecko_ids)
-        return {}
+        return {"bitcoin": _point("60000")}
 
     monkeypatch.setattr(crypto_service, "_fetch_market_data", counting_fetch)
 
     resp = await client.get("/crypto/holdings")
 
     assert resp.json()["synced"] is False
-    assert calls == []  # creation's own sync already satisfied the 24h window
+    assert calls == []  # creation's own sync already satisfied the one-hour window
+
+    async with test_sessionmaker() as session:
+        state = await session.get(CryptoSyncState, 1)
+        state.last_synced_at = datetime.now(timezone.utc) - timedelta(hours=1, seconds=1)
+        await session.commit()
+
+    resp = await client.get("/crypto/holdings")
+    assert resp.json()["synced"] is True
+    assert calls == [["bitcoin"]]
+    assert money(resp.json()["holdings"][0]["value"]) == money("30000")
 
 
-async def test_manual_refresh_button_bypasses_the_24h_window_and_updates_changes(client: AsyncClient, monkeypatch):
+async def test_manual_refresh_button_bypasses_the_one_hour_window_and_updates_changes(client: AsyncClient, monkeypatch):
     monkeypatch.setattr(crypto_service, "_fetch_market_data", _fake_fetch({"bitcoin": _point("50000")}))
     await _add_bitcoin(client, "0.5", "40000")
 

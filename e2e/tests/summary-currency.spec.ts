@@ -51,6 +51,9 @@ test('summary currency persists across screens without changing accounting or na
     await expect(page.locator('li').filter({ hasText: 'Summary EUR' })).toContainText(/100[,.]00\s*€/);
     await expect(selector).toHaveCount(0);
   } finally {
-    expect((await request.post('/api/backup/import', { data: snapshot })).ok()).toBeTruthy();
+    // Let app-open quote checks finish before replacing the shared test DB.
+    await page.waitForLoadState('networkidle');
+    const restore = await request.post('/api/backup/import', { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
   }
 });

@@ -9,13 +9,11 @@ Quantity and average buy price are never stored — they're derived from the
 CryptoTransaction log every time (see _compute_position), the same
 "you record it, we derive it" shape as Goal/GoalContribution.
 
-Refreshes are deliberately never automatic in the background — same
-reasoning as recurring transactions (see services/recurring_service.py):
-there's no scheduler/worker in this stack, and a rate-limited free API key
-makes "poll constantly" actively counterproductive anyway. Three triggers
-only: the "Refresh prices" button (force=True), a lazy once-a-day check
-that piggybacks on GET /crypto/holdings (force=False), and adding a brand
-new holding (a one-off seed fetch, justified by the explicit user action).
+Refreshes never run in a background worker. While the app is open, its client
+checks GET /crypto/holdings hourly; the server's shared one-hour window keeps
+other tabs and routes from spending extra CoinGecko calls. Other triggers are
+the "Refresh prices" button (force=True) and adding a brand new holding
+(a one-off seed fetch, justified by the explicit user action).
 Editing quantity via a buy/sell transaction never calls CoinGecko — it
 reuses the last cached price.
 """
@@ -75,16 +73,14 @@ PORTFOLIO_PALETTE = [
 ]
 
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-# CoinGecko's own Demo-tier data only refreshes every 60s server-side
-# (see docs.coingecko.com/reference/simple-price) — polling more often than
-# once a day here buys nothing and only spends rate-limit budget for no
-# reason (see module docstring on why there's no background poller at all).
-AUTO_REFRESH_INTERVAL = timedelta(hours=24)
+# The app checks while open; one batch call per hour stays well within the
+# Demo allowance while keeping portfolio values useful during the day.
+AUTO_REFRESH_INTERVAL = timedelta(hours=1)
 
 # Deliberately no "24h" option, unlike Net Worth's own RANGE_DAYS — our price
 # history is only ever as dense as our sync cadence (at most a few points a
-# day, see AUTO_REFRESH_INTERVAL above), so a 24h chart would show one or
-# two points, not the smooth intraday line a denser data source could draw.
+# hour while the app is open, see AUTO_REFRESH_INTERVAL above), so a 24h
+# chart would be sparse or empty after the app has been closed overnight.
 CRYPTO_RANGE_DAYS: dict[str, int] = {"7d": 7, "30d": 30, "90d": 90}
 
 _EAGER = (selectinload(CryptoHolding.transactions), selectinload(CryptoHolding.asset))
@@ -528,7 +524,7 @@ async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) ->
             await _upsert_valuation(session, asset.id, payload.quantity * point.price, date_.today())
         # This counts as a real sync — bump the shared timestamp so the next
         # GET /crypto/holdings doesn't immediately re-fetch every holding
-        # again a moment later (see refresh_prices' 24h window).
+        # again a moment later (see refresh_prices' one-hour window).
         state = await get_or_create_sync_state(session)
         # Only the first holding can represent a complete portfolio refresh.
         # Adding another coin must not make older prices look fresh.

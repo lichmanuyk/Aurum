@@ -31,9 +31,9 @@ export function deleteCryptoPortfolio(portfolioId: number) {
   return api.delete<void>(`/crypto/portfolios/${portfolioId}`);
 }
 
-// Also triggers the lazy once-a-day auto-refresh server-side — see
+// Also triggers the lazy hourly auto-refresh server-side — see
 // services/crypto_service.py. `portfolioId` only narrows what comes back in
-// `holdings` — the sync itself (and the 24h window) always covers every
+// `holdings` — the sync itself (and the one-hour window) always covers every
 // portfolio, see refresh_prices' own docstring.
 export function fetchCryptoHoldings(portfolioId?: number | null, currency?: string) {
   const query = portfolioId != null ? `?portfolio_id=${portfolioId}` : "";

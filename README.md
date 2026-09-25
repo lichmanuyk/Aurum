@@ -56,6 +56,11 @@ docker compose --env-file .env.personal -p aurum-personal ps
 Автоматизация локальная: на другом компьютере её понадобится настроить заново.
 Для ручной проверенной копии на этом Mac: `python3 scripts/backup_personal.py`.
 
+Пока приложение открыто, цены криптовалют проверяются раз в час, а справочные
+курсы NBP — раз в 12 часов. При возвращении во вкладку проверка выполняется,
+если соответствующий интервал истёк; закрытое приложение запросы не делает.
+Курсы конкретных переводов остаются привязаны к их собственным суммам.
+
 ## 🖼️ Screenshots
 
 <div align="center">
@@ -107,7 +112,7 @@ Log income, expenses, and transfers across as many accounts as you want, organiz
 A live net worth timeline (30 days to all-time) aggregating cash and every manually tracked asset — investments, crypto, real estate, vehicles, precious metals — into one number, with a full breakdown by asset class, by how each asset behaves (income / neutral / drain), and by risk level.
 
 ### 🪙 Crypto Tracker
-A CoinMarketCap-style portfolio tab for the coins you actually hold: live price plus 1h/24h/7d change, your holdings value, average buy price, and profit/loss — computed from a full buy/sell history, no separate portfolio tracker needed. Refresh on demand with one button, or let it auto-refresh once a day; either way it plugs straight into the Net Worth engine above as just another tracked asset.
+A CoinMarketCap-style portfolio tab for the coins you actually hold: live price plus 1h/24h/7d change, your holdings value, average buy price, and profit/loss — computed from a full buy/sell history, no separate portfolio tracker needed. Refresh on demand with one button, or let it check hourly while the app is open; either way it plugs straight into the Net Worth engine above as just another tracked asset.
 
 ### 🎯 Budgets, Goals & Recurring Payments
 Set a monthly limit per category and watch progress bars fill up. Track savings goals with a running contribution log. Register recurring bills and post them with one click when they're due — nothing runs automatically in the background.
