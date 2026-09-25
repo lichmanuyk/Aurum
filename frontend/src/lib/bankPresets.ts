@@ -22,6 +22,8 @@ export interface ImportMapping {
   merchant: string;
   notes: string;
   category: string;
+  transferAccount: string;
+  destinationAmount: string;
 }
 
 /** Matches a header cell by normalised prefix — see normalizeHeader(). A

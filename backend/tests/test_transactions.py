@@ -54,6 +54,31 @@ async def test_bulk_create_is_all_or_nothing(client: AsyncClient, account_id, ca
     assert listed.json()["total"] == 0
 
 
+async def test_bulk_import_income_expense_and_actual_transfer_preserves_both_balances(client, account_id, categories):
+    target = (await client.post('/accounts', json={'name': 'CSV PLN', 'currency': 'PLN'})).json()['id']
+    items = [
+        _txn(account_id, type='expense', amount='20', category_id=categories['Groceries']['id'], description='CSV groceries'),
+        _txn(account_id, type='income', amount='50', category_id=categories['Salary']['id'], description='CSV salary'),
+        _txn(account_id, type='transfer', amount='10', transfer_account_id=target, destination_amount='38', description='CSV transfer'),
+    ]
+    response = await client.post('/transactions/bulk', json={'items': items})
+    assert response.status_code == 201, response.text
+    assert response.json()['created'] == 3
+    balances = {row['id']: money(row['balance']) for row in (await client.get('/accounts')).json()}
+    assert balances[account_id] == 20
+    assert balances[target] == 38
+    transfer = next(row for row in (await client.get('/transactions')).json()['items'] if row['type'] == 'transfer')
+    assert money(transfer['destination_amount']) == 38
+
+    bad = await client.post('/transactions/bulk', json={'items': [
+        _txn(account_id, type='expense', amount='7', description='Would be duplicate money'),
+        _txn(account_id, type='transfer', amount='2', transfer_account_id=target, description='Unknown received amount'),
+    ]})
+    assert bad.status_code == 422
+    assert (await client.get('/transactions')).json()['total'] == 3
+    assert {row['id']: money(row['balance']) for row in (await client.get('/accounts')).json()} == balances
+
+
 async def test_create_expense_rejects_income_category(client: AsyncClient, account_id, categories):
     income_category = categories["Salary"]
     resp = await client.post(

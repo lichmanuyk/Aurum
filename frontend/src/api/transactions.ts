@@ -30,8 +30,8 @@ export function fetchTransactions(filters: TransactionFilters = {}) {
 // every transaction in the imported date range for one account, not just a
 // page of them, to know what's already there. Capped at 25 pages (5000 rows
 // at the API's max page_size) so a huge date range can't turn one import
-// into an unbounded fetch loop; beyond that, duplicate detection just
-// silently covers less of the range instead of hanging.
+// into an unbounded fetch loop. Reject a truncated check rather than
+// silently allowing a re-import to duplicate older rows.
 const MAX_DUPLICATE_CHECK_PAGES = 25;
 
 export async function fetchAllTransactionsInRange(filters: TransactionFilters): Promise<Transaction[]> {
@@ -41,6 +41,7 @@ export async function fetchAllTransactionsInRange(filters: TransactionFilters): 
     const result = await fetchTransactions({ ...filters, page, page_size: pageSize });
     items.push(...result.items);
     if (items.length >= result.total || result.items.length < pageSize) break;
+    if (page === MAX_DUPLICATE_CHECK_PAGES) throw new Error("Duplicate check exceeds 5000 transactions; choose a shorter date range");
   }
   return items;
 }
