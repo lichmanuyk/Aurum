@@ -55,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 7
+BACKUP_FORMAT_VERSION = 8
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -206,7 +206,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -352,6 +352,10 @@ def _validate_money_backup(payload):
     accounts = {a.id: a for a in payload.accounts}
     try:
         currency_code(payload.app_settings.currency)
+        for field_name in ("summary_currency", "dashboard_currency", "net_worth_currency", "crypto_currency"):
+            value = getattr(payload.app_settings, field_name)
+            if value is not None and value not in ("PLN", "USD", "EUR"):
+                raise ValueError(f"Invalid display currency in app_settings.{field_name}")
         for name in ("accounts", "categories", "transactions", "assets", "asset_valuations", "goals", "budgets", "tags", "transaction_splits", "crypto_transactions", "crypto_portfolios", "goal_contributions", "recurring_transactions", "fx_rates"):
             rows = getattr(payload, name)
             if len({r.id for r in rows}) != len(rows):

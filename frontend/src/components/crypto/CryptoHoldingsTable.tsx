@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Bitcoin, Plus, Trash2 } from "lucide-react";
 import { NetworkPicker } from "@/components/crypto/NetworkPicker";
 import { RiskLevelPicker } from "@/components/crypto/RiskLevelPicker";
@@ -43,7 +43,7 @@ export function CryptoHoldingsTable({
   onNetworkChange,
   portfoliosById,
 }: CryptoHoldingsTableProps) {
-  const { formatCryptoAmount } = useSummaryFormat();
+  const { formatCryptoAmount } = useSectionFormat();
   const { t } = useTranslation();
 
   if (items.length === 0) {

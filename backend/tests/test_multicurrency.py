@@ -130,7 +130,7 @@ async def test_goal_currency_and_backup_roundtrip(client):
     eur, pln = await account(client, 'EUR'), await account(client, 'PLN')
     await tx(client, eur, type='transfer', transfer_account_id=pln, destination_amount='431.27')
     exported = (await client.get('/backup/export')).json()
-    assert exported['aurum_backup_version'] == 7
+    assert exported['aurum_backup_version'] == 8
     assert (await client.post('/backup/import', json=exported)).status_code == 200
     again = (await client.get('/backup/export')).json()
     for key in ('goals', 'transactions', 'fx_rates', 'app_settings'):

@@ -51,7 +51,7 @@ async def test_manual_asset_purchase_revalue_sale_edit_delete_and_restore(client
     assert changed.status_code == 200, changed.text
     assert Decimal((await client.get('/accounts')).json()[0]['balance']) == 1040
     backup = (await client.get('/backup/export')).json()
-    assert backup['aurum_backup_version'] == 7
+    assert backup['aurum_backup_version'] == 8
     assert (await client.post('/backup/import', json=backup)).status_code == 200
     assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 1040
     bad = deepcopy(backup)

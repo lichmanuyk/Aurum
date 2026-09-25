@@ -620,6 +620,11 @@ export interface CryptoHistoryResponse {
   series: CryptoHistoryPoint[];
 }
 
+/** The three currencies the display-currency feature offers — a curated
+ * set, not the full CURRENCIES list from lib/currency.ts. See
+ * lib/displayCurrency.tsx. */
+export type DisplayCurrency = "PLN" | "USD" | "EUR";
+
 export interface AppSettings {
   idle_cash_threshold_currency: string;
   currency: string;
@@ -628,6 +633,14 @@ export interface AppSettings {
   risky_allocation_threshold_percent: number;
   idle_cash_threshold_amount: string;
   idle_cash_threshold_days: number;
+  // General display currency for the Dashboard/Net Worth/Crypto summaries —
+  // independent of `currency` above. null = no explicit choice yet, falls
+  // back to `currency`.
+  summary_currency: DisplayCurrency | null;
+  // Per-page overrides. null = inherit summary_currency.
+  dashboard_currency: DisplayCurrency | null;
+  net_worth_currency: DisplayCurrency | null;
+  crypto_currency: DisplayCurrency | null;
   /** Read-only: the running backend release. Comes back here rather than
    * from /api/health, which is served without auth. */
   app_version: string;

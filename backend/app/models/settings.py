@@ -30,3 +30,16 @@ class AppSettings(Base):
     idle_cash_threshold_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=Decimal("1000"))
     idle_cash_threshold_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
     idle_cash_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    # Display-only currency for the Dashboard/Net Worth/Crypto summaries —
+    # independent of `currency` above (the ledger's primary/reporting
+    # currency, which this never changes). NULL means "no explicit choice
+    # yet"; the frontend resolves that to the primary currency, same as the
+    # behavior before this setting existed. Restricted to PLN/USD/EUR at the
+    # schema layer (see schemas/settings.py), not the full CURRENCIES list.
+    summary_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
+    # Per-section overrides — NULL means "inherit summary_currency". Each is
+    # independent so e.g. Crypto can pin USD while Dashboard and Net Worth
+    # keep following the general summary_currency setting.
+    dashboard_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
+    net_worth_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
+    crypto_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)

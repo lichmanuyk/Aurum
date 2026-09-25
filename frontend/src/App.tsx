@@ -1,4 +1,4 @@
-import { SummaryCurrencyScope } from "@/lib/summaryCurrency";
+import { DisplayCurrencyProvider } from "@/lib/displayCurrency";
 import { AutoFxRefresh } from "@/components/settings/AutoFxRefresh";
 import { AutoCryptoRefresh } from "@/components/crypto/AutoCryptoRefresh";
 import { useEffect, useState } from "react";
@@ -37,42 +37,44 @@ export default function App() {
   }, [settings]);
 
   return (
-    <div className="flex min-h-screen bg-surface-0">
-      <Sidebar
-        collapsed={collapsed}
-        onToggleCollapsed={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileNavOpen}
-        onCloseMobile={() => setMobileNavOpen(false)}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenMobileNav={() => setMobileNavOpen(true)} />
-        {/* No max-width cap — the sidebar can be collapsed to free up space
-            (see Sidebar.tsx's collapsed w-[72px] vs expanded w-56), and a
-            fixed max-w here would leave that freed space as dead centered
-            gutter instead of handing it to the page. Padding alone keeps
-            content off the sidebar/viewport edges. */}
-        <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-          <AutoFxRefresh />
-          <AutoCryptoRefresh />
-          <Routes>
-            <Route path="/" element={<SummaryCurrencyScope><DashboardPage /></SummaryCurrencyScope>} />
-            <Route path="/net-worth" element={<SummaryCurrencyScope><NetWorthPage /></SummaryCurrencyScope>} />
-            <Route path="/crypto" element={<SummaryCurrencyScope><CryptoPage /></SummaryCurrencyScope>} />
-            <Route path="/roi" element={<RoiPage />} />
-            <Route path="/accounts" element={<AccountsPage />} />
-            <Route path="/categories" element={<CategoriesPage />} />
-            <Route path="/cash-flow" element={<CashFlowPage />} />
-            <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/transactions/import" element={<CsvImportPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/budget" element={<BudgetPage />} />
-            <Route path="/advice" element={<AdvicePage />} />
-            <Route path="/goals" element={<GoalsPage />} />
-            <Route path="/recurring" element={<RecurringPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-        </main>
+    <DisplayCurrencyProvider>
+      <div className="flex min-h-screen bg-surface-0">
+        <Sidebar
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed(!collapsed)}
+          mobileOpen={mobileNavOpen}
+          onCloseMobile={() => setMobileNavOpen(false)}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar onOpenMobileNav={() => setMobileNavOpen(true)} />
+          {/* No max-width cap — the sidebar can be collapsed to free up space
+              (see Sidebar.tsx's collapsed w-[72px] vs expanded w-56), and a
+              fixed max-w here would leave that freed space as dead centered
+              gutter instead of handing it to the page. Padding alone keeps
+              content off the sidebar/viewport edges. */}
+          <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+            <AutoFxRefresh />
+            <AutoCryptoRefresh />
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/net-worth" element={<NetWorthPage />} />
+              <Route path="/crypto" element={<CryptoPage />} />
+              <Route path="/roi" element={<RoiPage />} />
+              <Route path="/accounts" element={<AccountsPage />} />
+              <Route path="/categories" element={<CategoriesPage />} />
+              <Route path="/cash-flow" element={<CashFlowPage />} />
+              <Route path="/transactions" element={<TransactionsPage />} />
+              <Route path="/transactions/import" element={<CsvImportPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/budget" element={<BudgetPage />} />
+              <Route path="/advice" element={<AdvicePage />} />
+              <Route path="/goals" element={<GoalsPage />} />
+              <Route path="/recurring" element={<RecurringPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </main>
+        </div>
       </div>
-    </div>
+    </DisplayCurrencyProvider>
   );
 }

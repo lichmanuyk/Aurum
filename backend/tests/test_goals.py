@@ -99,7 +99,7 @@ async def test_goal_reservation_reduces_available_cash_without_moving_capital(cl
     assert (await client.delete(f'/accounts/{account_id}')).status_code == 409
 
     backup = (await client.get('/backup/export')).json()
-    assert backup['aurum_backup_version'] == 7
+    assert backup['aurum_backup_version'] == 8
     assert backup['goal_contributions'][0]['account_id'] == account_id
     assert (await client.post('/backup/import', json=backup)).status_code == 200
     assert money((await client.get('/accounts')).json()[0]['available_balance']) == 700

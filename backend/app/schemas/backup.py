@@ -234,6 +234,13 @@ class AppSettingsBackup(BaseModel):
     # still imports cleanly under the same format version.
     idle_cash_threshold_amount: Decimal = Decimal("1000")
     idle_cash_threshold_days: int = 60
+    # Defaulted to None so a backup exported before the display-currency
+    # settings existed still imports cleanly under the same format version —
+    # None means "no explicit choice"/"inherit", same as a fresh row.
+    summary_currency: str | None = None
+    dashboard_currency: str | None = None
+    net_worth_currency: str | None = None
+    crypto_currency: str | None = None
 
 
 class BackupPayload(BaseModel):

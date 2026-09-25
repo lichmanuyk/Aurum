@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
@@ -10,7 +10,7 @@ interface RiskAllocationCardProps {
 }
 
 export function RiskAllocationCard({ riskLevels, isLoading }: RiskAllocationCardProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t } = useTranslation();
 
   return (

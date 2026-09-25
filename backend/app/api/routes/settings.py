@@ -10,6 +10,13 @@ from app.services.settings_service import get_or_create_app_settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
+# The only fields where an explicit null in a PATCH is a real, meaningful
+# value ("no choice yet" / "inherit summary_currency") rather than a mistake
+# — every other field stays rejected below.
+NULLABLE_DISPLAY_CURRENCY_FIELDS = {
+    "summary_currency", "dashboard_currency", "net_worth_currency", "crypto_currency",
+}
+
 
 # Both routes still return the ORM row as-is: AppSettingsRead.app_version
 # isn't a stored column, it defaults to APP_VERSION when FastAPI validates
@@ -23,7 +30,7 @@ async def read_settings(session: AsyncSession = Depends(get_session)) -> AppSett
 async def update_settings(payload: AppSettingsUpdate, session: AsyncSession = Depends(get_session)) -> AppSettings:
     settings = await get_or_create_app_settings(session)
     updates = payload.model_dump(exclude_unset=True)
-    if any(value is None for value in updates.values()):
+    if any(value is None and field not in NULLABLE_DISPLAY_CURRENCY_FIELDS for field, value in updates.items()):
         raise HTTPException(422, "Settings cannot be null")
     require_money(updates.get("idle_cash_threshold_amount", settings.idle_cash_threshold_amount), updates.get("idle_cash_threshold_currency", settings.idle_cash_threshold_currency))
     for field, value in payload.model_dump(exclude_unset=True).items():

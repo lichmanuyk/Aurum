@@ -2,6 +2,7 @@ import { FxRatesCard } from "@/components/settings/FxRatesCard";
 import { AlertThresholdsCard } from "@/components/settings/AlertThresholdsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CurrencyCard } from "@/components/settings/CurrencyCard";
+import { DisplayCurrencyCard } from "@/components/settings/DisplayCurrencyCard";
 import { PreferencesCard } from "@/components/settings/PreferencesCard";
 import { useAppSettings } from "@/hooks/useSettings";
 import { t } from "@/lib/i18n";
@@ -16,6 +17,7 @@ export function SettingsPage() {
     <div className="space-y-5">
       <PreferencesCard />
       <CurrencyCard />
+      <DisplayCurrencyCard />
       <FxRatesCard />
       <AlertThresholdsCard />
       <BackupCard />

@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { maskAmount } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { CryptoHolding, RiskLevel } from "@/types";
@@ -70,7 +70,7 @@ export function computeRiskTiers(holdings: CryptoHolding[]): RiskTier[] {
  * client-side: every holding already carries value + risk_level from
  * GET /crypto/holdings, no separate endpoint needed. */
 export function CryptoRiskAllocationBody({ holdings, isLoading, hidden }: CryptoRiskAllocationBodyProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t } = useTranslation();
 
   if (isLoading) {

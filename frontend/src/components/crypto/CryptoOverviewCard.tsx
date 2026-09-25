@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -45,7 +45,7 @@ export function CryptoOverviewCard({
   hidden,
   onToggleHidden,
 }: CryptoOverviewCardProps) {
-  const { formatCurrency, formatSignedCurrency } = useSummaryFormat();
+  const { formatCurrency, formatSignedCurrency } = useSectionFormat();
   const { t } = useTranslation();
   const [tab, setTab] = useState<OverviewTab>("history");
 

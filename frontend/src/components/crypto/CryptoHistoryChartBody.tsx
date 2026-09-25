@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
 import { getIntlLocale, maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -23,7 +23,7 @@ function ChartTooltip({
   payload?: Array<{ payload: { date: string; value: number } }>;
   hidden: boolean;
 }) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (

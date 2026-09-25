@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getCategoryIcon } from "@/lib/icons";
 
@@ -18,7 +18,7 @@ function breakdownLabelKey(key: string): TranslationKey {
 }
 
 export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCardProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t } = useTranslation();
   const total = breakdown.reduce((sum, item) => sum + Number(item.amount), 0);
 
