@@ -2,6 +2,7 @@ import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
+import { FxRateOverviewCard } from "@/components/dashboard/FxRateOverviewCard";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { SpendingByCategoryCard } from "@/components/dashboard/SpendingByCategoryCard";
 import { RecentTransactionsCard } from "@/components/dashboard/RecentTransactionsCard";
@@ -76,6 +77,8 @@ export function DashboardPage() {
           tone={rate === null ? "default" : rate >= 0 ? "success" : "danger"}
         />
       </div>
+
+      <FxRateOverviewCard />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
         <SpendingByCategoryCard items={data?.spending_by_category ?? []} />

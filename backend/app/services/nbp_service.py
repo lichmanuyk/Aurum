@@ -26,8 +26,11 @@ TABLE_A = set('THB USD AUD HKD CAD NZD SGD EUR HUF CHF GBP UAH JPY CZK DKK ISK N
 
 async def import_plan(session):
     settings = await get_or_create_app_settings(session)
-    # Include the summary display choices even without native EUR/USD accounts.
-    currencies = {settings.currency, settings.idle_cash_threshold_currency, "EUR", "USD"}
+    # Include the summary display choices even without native EUR/USD
+    # accounts, and BYN/RUB for the Dashboard's compact rate overview (see
+    # docs/tasks/fx-rate-overview.md) — that card always shows these four,
+    # regardless of whether the user holds an account in any of them.
+    currencies = {settings.currency, settings.idle_cash_threshold_currency, "EUR", "USD", "BYN", "RUB"}
     for model, field in [(Account, Account.currency), (Asset, Asset.currency), (Budget, Budget.currency),
                          (Goal, Goal.currency), (Transaction, Transaction.reporting_currency_override),
                          (CryptoTransaction, CryptoTransaction.quote_currency)]:

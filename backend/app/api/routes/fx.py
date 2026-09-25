@@ -73,6 +73,12 @@ async def read_quote_status(session: AsyncSession = Depends(get_session)):
     return await quote_status(session)
 
 
+@router.get('/overview')
+async def read_fx_rate_overview(session: AsyncSession = Depends(get_session)):
+    from app.services.quote_status_service import fx_rate_overview
+    return await fx_rate_overview(session)
+
+
 @router.post('/nbp/latest')
 async def refresh_latest_nbp_rates(session: AsyncSession = Depends(get_session)):
     from datetime import timedelta

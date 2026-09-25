@@ -73,6 +73,8 @@ const ru = {
   "dashboard.recentTransactionsTitle": "Последние транзакции",
   "dashboard.allTransactionsLink": "Все транзакции",
   "dashboard.noTransactionsYet": "Транзакций пока нет.",
+  "fxOverview.title": "Курсы валют",
+  "fxOverview.noRate": "нет курса",
 
   "netWorth.periodSuffix": "за период",
   "netWorth.noChartData": "Пока нет данных для графика.",
@@ -645,6 +647,8 @@ const en: Record<keyof typeof ru, string> = {
   "dashboard.recentTransactionsTitle": "Recent transactions",
   "dashboard.allTransactionsLink": "All transactions",
   "dashboard.noTransactionsYet": "No transactions yet.",
+  "fxOverview.title": "Currency rates",
+  "fxOverview.noRate": "no rate",
 
   "netWorth.periodSuffix": "over period",
   "netWorth.noChartData": "No data for the chart yet.",
