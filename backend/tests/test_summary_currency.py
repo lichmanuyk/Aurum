@@ -31,6 +31,37 @@ async def test_dashboard_uses_historical_rates_without_changing_primary_or_ledge
     assert default['reporting_currency'] == 'PLN' and Decimal(default['spent']) == 900
 
 
+async def test_year_boundary_uses_each_dates_fx_and_missing_rate_is_explicit(client):
+    await client.patch('/settings', json={'currency': 'PLN'})
+    eur = await account(client, 'EUR')
+    for day, eur_rate in [('2025-12-31', '4'), ('2026-01-01', '5')]:
+        await rate(client, day, value=eur_rate)
+        await rate(client, day, base='USD', value='2')
+        await tx(client, eur, type='income', amount='100', date=day)
+    await rate(client, date.today(), value='9')
+    before = (await client.get('/backup/export')).json()
+    for year, month, expected in [
+        (2025, 12, {'PLN': 400, 'USD': 200, 'EUR': 100}),
+        (2026, 1, {'PLN': 500, 'USD': 250, 'EUR': 100}),
+    ]:
+        for currency, amount in expected.items():
+            response = await client.get('/dashboard/summary', params={'year': year, 'month': month, 'currency': currency})
+            assert response.status_code == 200, response.text
+            assert Decimal(response.json()['real_income']) == amount
+    after = (await client.get('/backup/export')).json()
+    for key in ('app_settings', 'accounts', 'transactions', 'fx_rates'):
+        assert before[key] == after[key]
+    assert Decimal((await client.get('/accounts')).json()[-1]['balance']) == 200
+
+    await tx(client, eur, type='income', amount='10', date='2026-01-20')
+    missing = await client.get('/dashboard/summary', params={'year': 2026, 'month': 1, 'currency': 'PLN'})
+    assert missing.status_code == 409
+    assert missing.json()['detail']['code'] == 'FX_RATE_MISSING'
+    native = await client.get('/dashboard/summary', params={'year': 2026, 'month': 1, 'currency': 'EUR'})
+    assert native.status_code == 200
+    assert Decimal(native.json()['real_income']) == 110
+
+
 async def test_net_worth_currency_is_request_scoped_even_for_concurrent_reads(client):
     await client.patch('/settings', json={'currency': 'PLN'})
     eur = await account(client, 'EUR')
