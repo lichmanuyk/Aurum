@@ -27,6 +27,12 @@ trap cleanup EXIT
 
 $COMPOSE up -d --build
 
+# The browser and the test API client share one localhost address. Whole-flow
+# assertions issue far more requests than a single user, so raise nginx's
+# burst allowance only inside this disposable E2E container.
+$COMPOSE exec -T web sed -i 's/rate=20r\/s/rate=200r\/s/; s/burst=40/burst=400/g' /etc/nginx/conf.d/default.conf
+$COMPOSE exec -T web nginx -s reload
+
 echo "waiting for http://localhost:${AURUM_WEB_PORT}/api/health ..."
 # /api/health, not just / — nginx (the `web` container) answers the bare root
 # well before the backend has finished running migrations + seeding, and a

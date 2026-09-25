@@ -1,4 +1,19 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, APIResponse } from "@playwright/test";
+
+/** The shared E2E browser and API client can briefly exhaust nginx's
+ * per-IP burst allowance. Only its explicit 429 is retried. */
+export async function requestWithRateLimit(
+  request: APIRequestContext,
+  path: string,
+  options: { method?: string; data?: Record<string, unknown>; params?: Record<string, number | string> } = {},
+): Promise<APIResponse> {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const response = await request.fetch(path, options);
+    if (response.status() !== 429) return response;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`${path} stayed rate-limited`);
+}
 
 /** Thin wrapper over the real HTTP API (proxied at /api by nginx, same as
  * the frontend uses) — fast, reliable fixture setup so each spec can drive
