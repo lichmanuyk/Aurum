@@ -73,13 +73,24 @@ async def read_quote_status(session: AsyncSession = Depends(get_session)):
     return await quote_status(session)
 
 
+@router.get('/overview')
+async def read_fx_rate_overview(session: AsyncSession = Depends(get_session)):
+    from app.services.quote_status_service import fx_rate_overview
+    return await fx_rate_overview(session)
+
+
 @router.post('/nbp/latest')
 async def refresh_latest_nbp_rates(session: AsyncSession = Depends(get_session)):
     from datetime import timedelta
-    from app.services.nbp_service import import_plan, import_rates
+    from app.services.nbp_service import OVERVIEW_ONLY_CURRENCIES, import_plan, import_rates
     plan = await import_plan(session)
-    if not plan['currencies']:
+    # The Dashboard's rate overview always wants a fresh BYN/RUB quote, even
+    # for a user with no account/transaction in either — but only for this
+    # short recent window, never as part of the full-history plan/coverage
+    # (see OVERVIEW_ONLY_CURRENCIES's own docstring in nbp_service.py).
+    currencies = sorted(set(plan['currencies']) | OVERVIEW_ONLY_CURRENCIES)
+    if not currencies:
         return {'saved': 0, 'absent_currencies': []}
     return await import_rates(session, NBPImport(
         start_date=plan['end_date'] - timedelta(days=14),
-        end_date=plan['end_date'], currencies=plan['currencies']))
+        end_date=plan['end_date'], currencies=currencies))
