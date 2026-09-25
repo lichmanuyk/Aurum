@@ -13,6 +13,9 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY . .
+# Deployment's backup/lock process uses a private umask. Git may therefore
+# check out changed source files as 0600; the non-root app must still read them.
+RUN chmod -R a+rX /app
 
 # Drop root. The app never writes to disk (PYTHONDONTWRITEBYTECODE above, no
 # uploads, no local cache), so it only needs read access to /app — which is
