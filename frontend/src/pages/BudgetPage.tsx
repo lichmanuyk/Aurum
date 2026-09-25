@@ -58,7 +58,9 @@ export function BudgetPage() {
 
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <MonthSelector month={month} onChange={setMonth} />
+          {/* allowAll defaults to false — a budget is always exactly one
+              month, so onChange never actually receives null here. */}
+          <MonthSelector month={month} onChange={(value) => setMonth(value ?? month)} />
         </div>
         <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={setYear} />
       </div>

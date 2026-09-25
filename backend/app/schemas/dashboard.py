@@ -31,8 +31,10 @@ class CategoryBreakdownItem(BaseModel):
 class DashboardSummary(BaseModel):
     fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
     reporting_currency: str
-    year: int
-    month: int
+    # None means "all time" (year) / "every month of `year`" (month) — see
+    # docs/tasks/dashboard-periods.md and dashboard_service._resolve_bounds.
+    year: int | None
+    month: int | None
     real_income: Decimal
     spent: Decimal
     net: Decimal

@@ -25,23 +25,32 @@ test('year boundary uses dated FX, display currency preserves EUR money and miss
     // Dashboard's display currency now comes from Settings (summary_currency),
     // set here directly via the API, same as a user would via the Settings
     // page's DisplayCurrencyCard (covered by summary-currency.spec.ts).
+    // A fresh open (and a reload — the period is deliberately never
+    // persisted, see docs/tasks/dashboard-periods.md) always starts on
+    // "Всё время", with no month/year pickers at all until "Год" is
+    // picked — which itself always lands on the current year (2026 here),
+    // exactly the year every check below needs.
     async function setDashboardCurrency(value: string | null) {
       expect((await request.patch('/api/settings', { data: { summary_currency: value } })).ok()).toBeTruthy();
       await page.reload();
+      await page.getByRole('button', { name: 'Год', exact: true }).click();
+      await page.getByRole('button', { name: 'Янв', exact: true }).click();
     }
-    await page.getByRole('button', { name: 'Дек', exact: true }).click();
+    await page.getByRole('button', { name: 'Год', exact: true }).click();
+    // "Год" lands on the current (2026) year, where December doesn't exist
+    // as a future month yet (see docs/tasks/dashboard-periods.md) — switch
+    // to the past year first, which has every month, then pick December.
     await page.getByRole('button', { name: /^\d{4}$/ }).first().click();
     await page.getByRole('option', { name: '2025' }).click();
+    await page.getByRole('button', { name: 'Дек', exact: true }).click();
     await expect(income).toContainText('400');
     await page.getByRole('button', { name: /^2025$/ }).click();
     await page.getByRole('option', { name: '2026' }).click();
     await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('500');
     await setDashboardCurrency('USD');
-    await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('250');
     await setDashboardCurrency('EUR');
-    await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('100');
     const accounts = await (await requestWithRateLimit(request, '/api/accounts')).json();
     expect(Number(accounts.find((item: { id: number }) => item.id === account.id).balance)).toBe(200);
@@ -50,7 +59,6 @@ test('year boundary uses dated FX, display currency preserves EUR money and miss
       account_id: account.id, type: 'income', amount: '10', date: '2026-01-20', description: 'P1 missing FX',
     } })).ok()).toBeTruthy();
     await setDashboardCurrency('PLN');
-    await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ })).toBeVisible();
     await expect(income).toContainText('—');
   } finally {

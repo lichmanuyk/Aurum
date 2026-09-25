@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
+import { PillSelector } from "@/components/layout/PillSelector";
 import { TransactionsTable } from "@/components/transactions/TransactionsTable";
 import { TransactionFormModal } from "@/components/transactions/TransactionFormModal";
 import { useTransactions, useDeleteTransaction, useTransactionYears } from "@/hooks/useTransactions";
@@ -14,35 +15,29 @@ import { useTags } from "@/hooks/useTags";
 import type { TransactionSort } from "@/api/transactions";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
+import { parseDashboardPeriodParams, visibleMonthCount } from "@/lib/dashboardPeriod";
 import type { Transaction, TransactionType } from "@/types";
 
 const PAGE_SIZE = 20;
 
-/** Parses a query-param month, falling back to `fallback` for anything
- * missing or out of range (e.g. a hand-edited URL). Must check `value`
- * for null before `Number()` — `Number(null)` is 0, not NaN, so a missing
- * param would otherwise silently pass the integer check and clamp to 1. */
-function parseMonthParam(value: string | null, fallback: number): number {
-  if (value === null) return fallback;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 12 ? parsed : fallback;
-}
-
-function parseYearParam(value: string | null, fallback: number): number {
-  if (value === null) return fallback;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
+type PeriodMode = "all" | "year";
 
 export function TransactionsPage() {
   const { t, language } = useTranslation();
   const now = new Date();
   // Deep-linked from the Dashboard's "All transactions" link, which carries
-  // the month/year the user was already looking at (?year=&month=) so this
-  // page doesn't reset back to the current month.
+  // the period the user was already looking at (?year=&month=, or
+  // ?period=all, or ?year= alone for "every month of that year" — see
+  // lib/dashboardPeriod.ts) so this page doesn't reset back to the current
+  // month. A bare /transactions (e.g. from the nav sidebar) still falls
+  // back to the current month exactly as before.
   const [searchParams] = useSearchParams();
-  const [year, setYear] = useState(() => parseYearParam(searchParams.get("year"), now.getFullYear()));
-  const [month, setMonth] = useState(() => parseMonthParam(searchParams.get("month"), now.getMonth() + 1));
+  const [year, setYear] = useState<number | null>(
+    () => parseDashboardPeriodParams(searchParams, { year: now.getFullYear(), month: now.getMonth() + 1 }).year
+  );
+  const [month, setMonth] = useState<number | null>(
+    () => parseDashboardPeriodParams(searchParams, { year: now.getFullYear(), month: now.getMonth() + 1 }).month
+  );
   const [type, setType] = useState<TransactionType | "">("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [tagId, setTagId] = useState<string>("");
@@ -71,8 +66,10 @@ export function TransactionsPage() {
   const { data, isLoading, isError } = useTransactions({
     // A search looks for a purchase from an unknown month, so it must span
     // every period instead of being boxed into the currently selected one.
-    year: isSearching ? undefined : year,
-    month: isSearching ? undefined : month,
+    // null (all time / every month of the year) also means "no filter on
+    // this axis", same as undefined — see api/transactions.ts.
+    year: isSearching ? undefined : year ?? undefined,
+    month: isSearching ? undefined : month ?? undefined,
     search: isSearching ? search : undefined,
     type: type || undefined,
     category_id: categoryId ? Number(categoryId) : undefined,
@@ -112,7 +109,7 @@ export function TransactionsPage() {
     }
   }
 
-  /** Leaves search mode and switches the month/year selectors to whichever
+  /** Leaves search mode and switches the period selectors to whichever
    * month the picked transaction is in, so the user lands back in the normal
    * browsing view with it in context instead of a flat result list. */
   function handleJumpToMonth(transaction: Transaction) {
@@ -124,29 +121,47 @@ export function TransactionsPage() {
     setPage(1);
   }
 
+  const periodMode: PeriodMode = year === null ? "all" : "year";
+  const PERIOD_MODE_OPTIONS: Array<{ value: PeriodMode; label: string }> = [
+    { value: "all", label: t("reports.rangeAll") },
+    { value: "year", label: t("dashboard.periodYear") },
+  ];
+
+  function handlePeriodModeChange(value: PeriodMode) {
+    setYear(value === "all" ? null : now.getFullYear());
+    setMonth(null);
+    setPage(1);
+  }
+
+  function handleYearChange(newYear: number) {
+    setYear(newYear);
+    // Same "still on a now-future month" guard as the Dashboard — falls
+    // back to "every month" instead of keeping an invalid selection.
+    setMonth((current) => (current !== null && current > visibleMonthCount(newYear) ? null : current));
+    setPage(1);
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className={`min-w-0 flex-1 ${isSearching ? "pointer-events-none opacity-50" : ""}`}>
-            <MonthSelector
-              month={month}
-              onChange={(value) => {
-                setMonth(value);
-                setPage(1);
-              }}
-            />
-          </div>
-          <div className={isSearching ? "pointer-events-none opacity-50" : ""}>
-            <YearSelector
-              years={years ?? [now.getFullYear()]}
-              year={year}
-              onChange={(value) => {
-                setYear(value);
-                setPage(1);
-              }}
-            />
-          </div>
+        <div className={`flex min-w-0 flex-1 items-center gap-3 ${isSearching ? "pointer-events-none opacity-50" : ""}`}>
+          <PillSelector options={PERIOD_MODE_OPTIONS} value={periodMode} onChange={handlePeriodModeChange} />
+          {year !== null && (
+            <>
+              <div className="min-w-0 flex-1">
+                <MonthSelector
+                  month={month}
+                  maxMonth={visibleMonthCount(year)}
+                  allowAll
+                  onChange={(value) => {
+                    setMonth(value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={handleYearChange} />
+            </>
+          )}
         </div>
         <div className="flex gap-2">
           <Link to="/transactions/import" className="flex-1 sm:flex-none">

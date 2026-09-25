@@ -4,17 +4,17 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
+import { dashboardLinkFor, type DashboardPeriod } from "@/lib/dashboardPeriod";
 import { useTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
 
-interface RecentTransactionsCardProps {
-  year: number;
-  month: number;
-}
+type RecentTransactionsCardProps = DashboardPeriod;
 
 export function RecentTransactionsCard({ year, month }: RecentTransactionsCardProps) {
   const { t } = useTranslation();
-  const { data, isLoading } = useTransactions({ year, month, page: 1, page_size: 6 });
+  const { data, isLoading } = useTransactions({
+    year: year ?? undefined, month: month ?? undefined, page: 1, page_size: 6,
+  });
   const { data: categories } = useCategories();
 
   return (
@@ -22,7 +22,7 @@ export function RecentTransactionsCard({ year, month }: RecentTransactionsCardPr
       <CardHeader>
         <CardTitle>{t("dashboard.recentTransactionsTitle")}</CardTitle>
         <Link
-          to={`/transactions?year=${year}&month=${month}`}
+          to={dashboardLinkFor({ year, month })}
           className="text-xs font-medium text-series-1 hover:underline"
         >
           {t("dashboard.allTransactionsLink")}

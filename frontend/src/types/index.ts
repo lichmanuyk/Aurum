@@ -203,8 +203,10 @@ export interface CategoryBreakdownItem {
 
 export interface DashboardSummary {
   reporting_currency: string;
-  year: number;
-  month: number;
+  // null year = all time; null month = every month of `year` — see
+  // lib/dashboardPeriod.ts.
+  year: number | null;
+  month: number | null;
   real_income: string;
   spent: string;
   net: string;

@@ -20,13 +20,25 @@ MAX_CHART_SLICES = 8
 OTHER_SLICE_COLOR = "#898781"  # muted ink, reserved for the non-categorical rollup
 
 
-def _month_bounds(year: int, month: int) -> tuple[date, date]:
+def _resolve_bounds(year: int | None, month: int | None) -> tuple[date | None, date]:
+    """Turns the dashboard's period selection into a (start, end) range —
+    `start=None` means "all time" (no lower bound; whatever the earliest
+    activity is). `end` is always clamped to today: a past month/year's own
+    calendar end is already <= today, so this only changes anything for the
+    *current* month/year (or all-time itself), which is exactly where a
+    stray future-dated transaction must not leak into a period that's
+    supposed to end today (see docs/tasks/dashboard-periods.md)."""
+    today = date.today()
+    if year is None:
+        return None, today
+    if month is None:
+        return date(year, 1, 1), min(date(year, 12, 31), today)
     last_day = calendar.monthrange(year, month)[1]
-    return date(year, month, 1), date(year, month, last_day)
+    return date(year, month, 1), min(date(year, month, last_day), today)
 
 
-async def get_dashboard_summary(session: AsyncSession, year: int, month: int) -> DashboardSummary:
-    start, end = _month_bounds(year, month)
+async def get_dashboard_summary(session: AsyncSession, year: int | None, month: int | None) -> DashboardSummary:
+    start, end = _resolve_bounds(year, month)
 
     fx = await FXConverter.load(session)
     totals = {}
