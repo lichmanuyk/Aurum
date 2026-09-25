@@ -43,10 +43,7 @@ export function CategoriesPage() {
     try {
       await deleteCategory.mutateAsync(category.id);
     } catch {
-      // The only way a delete 400s is a default category that still has
-      // transactions pointing at it (api/routes/categories.py) — a custom
-      // category has no such guard and always succeeds.
-      window.alert(t("category.defaultDeleteBlocked"));
+      window.alert(t("category.deleteBlocked"));
     }
   }
 

@@ -78,3 +78,19 @@ async def test_filter_transactions_by_tag(client: AsyncClient, account_id, categ
     body = resp.json()
     assert body["total"] == 1
     assert body["items"][0]["tags"][0]["id"] == tag
+
+
+async def test_deleting_used_tag_keeps_the_transaction(client: AsyncClient, account_id, categories):
+    tag_id = (await client.post("/tags", json={"name": "Temporary"})).json()["id"]
+    category_id = categories["Groceries"]["id"]
+    created = await client.post(
+        "/transactions", json=_txn(account_id, category_id=category_id, tag_ids=[tag_id])
+    )
+    transaction_id = created.json()["id"]
+
+    assert (await client.delete(f"/tags/{tag_id}")).status_code == 204
+    rows = (await client.get("/transactions", params={"category_id": category_id})).json()
+    assert rows["total"] == 1
+    assert rows["items"][0]["id"] == transaction_id
+    assert rows["items"][0]["tags"] == []
+    assert rows["items"][0]["category"]["id"] == category_id

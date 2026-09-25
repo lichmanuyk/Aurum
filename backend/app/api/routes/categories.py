@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session
 from app.models.category import Category
+from app.models.budget import Budget
 from app.models.enums import CategoryKind
+from app.models.recurring import RecurringTransaction
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.category import CategoryCreate, CategoryRead, CategoryUpdate
 
@@ -75,22 +77,21 @@ async def delete_category(category_id: int, session: AsyncSession = Depends(get_
     category = await session.get(Category, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail="Category not found")
-    if category.is_default:
-        # A default (seeded) category can be removed once it's unused — but
-        # never while transactions still point at it, or a whole year's
-        # worth of history would silently lose its category (the FK is
-        # ON DELETE SET NULL, so nothing would error, it would just vanish
-        # from every report). A custom category has no such guard: the user
-        # created it and can freely delete it, same as before.
-        has_transaction = (
-            await session.execute(select(Transaction.id).where(Transaction.category_id == category_id).limit(1))
-        ).first()
-        has_split = (
-            await session.execute(select(TransactionSplit.id).where(TransactionSplit.category_id == category_id).limit(1))
-        ).first()
-        if has_transaction is not None or has_split is not None:
-            raise HTTPException(
-                status_code=400, detail="Default categories can only be deleted once they have no transactions"
-            )
+    # Both seeded and custom categories must stay while referenced. A used
+    # child also keeps its parent: removing the parent would change how old
+    # spending is grouped in reports. The FK's SET NULL would hide both.
+    protected_ids = select(Category.id).where((Category.id == category_id) | (Category.parent_id == category_id))
+    has_transaction = (
+        await session.execute(select(Transaction.id).where(Transaction.category_id.in_(protected_ids)).limit(1))
+    ).first()
+    has_split = (
+        await session.execute(select(TransactionSplit.id).where(TransactionSplit.category_id.in_(protected_ids)).limit(1))
+    ).first()
+    has_budget = (await session.execute(select(Budget.id).where(Budget.category_id.in_(protected_ids)).limit(1))).first()
+    has_recurring = (
+        await session.execute(select(RecurringTransaction.id).where(RecurringTransaction.category_id.in_(protected_ids)).limit(1))
+    ).first()
+    if any((has_transaction, has_split, has_budget, has_recurring)):
+        raise HTTPException(status_code=400, detail="Categories in use cannot be deleted")
     await session.delete(category)
     await session.commit()
