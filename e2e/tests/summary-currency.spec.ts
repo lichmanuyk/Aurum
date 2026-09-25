@@ -101,6 +101,77 @@ test('display currency preferences persist server-side, inherit/override per pag
   }
 });
 
+// Manually created contexts/pages (below) bypass ../fixtures's page-level
+// route stub, so each one needs this applied itself.
+function stubNbp(page: import('@playwright/test').Page) {
+  return page.route('**/api/fx-rates/nbp/latest', route => route.fulfill({ json: { saved: 0, absent_currencies: [] } }));
+}
+
+test('display currency preferences hold in a brand-new browser context, but a temporary view never does', async ({ browser, request }) => {
+  test.setTimeout(60000);
+  const snapshot = await (await request.get('/api/backup/export')).json();
+  try {
+    // Wiped to no accounts/transactions/assets — this test only cares that
+    // the display-currency *preferences* survive a new context, not about
+    // actual conversion math (covered by the test above), so it must not
+    // depend on whatever FX rates other specs happen to have left behind
+    // for whatever currencies their own leftover data used.
+    const empty = Object.fromEntries(Object.entries(snapshot).map(([key, value]) =>
+      [key, Array.isArray(value) && !['accounts', 'categories'].includes(key) ? [] : value]));
+    expect((await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: empty })).ok()).toBeTruthy();
+    // General USD; Dashboard explicitly pinned back to the primary PLN
+    // (so it shows no temporary-view action at all); Net Worth overridden
+    // to EUR; Crypto left inheriting the general USD.
+    expect((await request.patch('/api/settings', { data: {
+      currency: 'PLN', summary_currency: 'USD', dashboard_currency: 'PLN',
+      net_worth_currency: 'EUR', crypto_currency: null,
+    } })).ok()).toBeTruthy();
+
+    // "Session" A: a fresh context (a separate cookie/storage jar, same as a
+    // brand-new login) — flip Net Worth to a temporary primary-currency view.
+    const contextA = await browser.newContext();
+    const pageA = await contextA.newPage();
+    await stubNbp(pageA);
+    await pageA.goto('/net-worth');
+    const toggleInA = pageA.getByRole('button', { name: VIEW_IN_PLN });
+    await expect(toggleInA).toBeVisible();
+    await toggleInA.click();
+    await expect(pageA.getByRole('button', { name: /Показать в EUR|Show in EUR/ })).toBeVisible();
+    await contextA.close();
+
+    // "Session" B: another brand-new context — nothing about session A's
+    // temporary view (a purely in-memory choice) can have followed it here,
+    // and the preferences saved via the API above must still be in effect.
+    const contextB = await browser.newContext();
+    const pageB = await contextB.newPage();
+    await stubNbp(pageB);
+    await mockCrypto(pageB);
+
+    const netWorthResponse = pageB.waitForResponse(r => r.url().includes('/net-worth/summary') && r.url().includes('currency=EUR'));
+    await pageB.goto('/net-worth');
+    expect((await (await netWorthResponse).json()).reporting_currency).toBe('EUR');
+    // Configured (EUR), not stuck on session A's temporary PLN — and the
+    // action still offers switching to primary, exactly as before session A.
+    await expect(pageB.getByRole('button', { name: VIEW_IN_PLN })).toBeVisible();
+    await expect(pageB.getByRole('button', { name: /Показать в EUR|Show in EUR/ })).toHaveCount(0);
+
+    // Dashboard's override equals the primary currency — no action at all.
+    await pageB.goto('/');
+    await expect(pageB.getByRole('button', { name: /Показать в|Show in/ })).toHaveCount(0);
+
+    // Crypto inherits the general USD.
+    const cryptoHistoryResponse = pageB.waitForResponse(r => r.url().includes('/crypto/history') && r.url().includes('currency=USD'));
+    await pageB.goto('/crypto');
+    expect((await (await cryptoHistoryResponse).json()).reporting_currency).toBe('USD');
+    await expect(pageB.getByRole('button', { name: VIEW_IN_PLN })).toBeVisible();
+
+    await contextB.close();
+  } finally {
+    const restore = await request.post('/api/backup/import', { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});
+
 test('display currency settings and the temporary-view action work on a narrow viewport', async ({ page, request }) => {
   const snapshot = await (await request.get('/api/backup/export')).json();
   try {

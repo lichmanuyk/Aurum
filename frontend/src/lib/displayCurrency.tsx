@@ -68,16 +68,34 @@ export function DisplayCurrencyProvider({ children }: { children: ReactNode }) {
   // One-time migration of the old browser-only choice: only when the server
   // has genuinely never been set (summary_currency is null) — once a real
   // choice exists there (from this browser or a different one), the server
-  // wins and the legacy value is never consulted again.
-  const migrationRan = useRef(false);
+  // wins and the legacy value is never consulted again. LEGACY_MIGRATED_KEY
+  // is only written once the PATCH actually succeeds (or there's nothing to
+  // migrate) — writing it eagerly would silently drop the user's choice
+  // forever the moment the very first attempt hit a network error.
+  const migrationInFlight = useRef(false);
   useEffect(() => {
-    if (migrationRan.current || !settings || localStorage.getItem(LEGACY_MIGRATED_KEY)) return;
-    migrationRan.current = true;
-    localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
+    if (migrationInFlight.current || !settings || localStorage.getItem(LEGACY_MIGRATED_KEY)) return;
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (settings.summary_currency === null && legacy && DISPLAY_CURRENCIES.includes(legacy as DisplayCurrency)) {
-      updateSettings.mutate({ summary_currency: legacy as DisplayCurrency });
+    if (settings.summary_currency !== null || !legacy || !DISPLAY_CURRENCIES.includes(legacy as DisplayCurrency)) {
+      // Nothing to migrate — safe to mark done regardless of network state.
+      localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
+      return;
     }
+    migrationInFlight.current = true;
+    (async () => {
+      const attempts = 3;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+          await updateSettings.mutateAsync({ summary_currency: legacy as DisplayCurrency });
+          localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
+          return;
+        } catch {
+          if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+        }
+      }
+      // Every retry failed — LEGACY_MIGRATED_KEY stays unset, so the next
+      // full page load (this effect's next mount) tries again from scratch.
+    })().finally(() => { migrationInFlight.current = false; });
   }, [settings, updateSettings]);
 
   const [isTemporaryPrimaryView, setTemporary] = useState(false);
