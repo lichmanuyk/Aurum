@@ -1,4 +1,6 @@
 from decimal import Decimal
+from datetime import date
+import httpx
 from app.services import crypto_service
 from tests.test_crypto import _fake_fetch, _point
 
@@ -30,3 +32,31 @@ async def test_buy_cannot_omit_price_and_opening_cannot_invent_it(client,monkeyp
     for payload in [dict(type='buy',quantity='1'),dict(type='opening',quantity='1',price_per_unit='100')]:
         response=await client.post(f"/crypto/holdings/{h['asset_id']}/transactions",json={**payload,'date':'2026-01-02'})
         assert response.status_code==422,response.text
+
+async def test_opening_quantity_tracks_live_capital_and_retains_last_price_on_outage(client, monkeypatch):
+    monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('100')}))
+    created = await client.post('/crypto/holdings', json=dict(
+        coingecko_id='bitcoin', symbol='BTC', name='Bitcoin', quantity='2', date=str(date.today())))
+    assert created.status_code == 201, created.text
+    holding = created.json()
+    assert Decimal(holding['quantity']) == 2
+    assert holding['cost_basis'] is None and holding['profit_loss'] is None
+    assert Decimal(holding['value']) == 200
+    assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 200
+
+    monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('125')}))
+    refreshed = (await client.post('/crypto/refresh')).json()
+    assert refreshed['synced'] is True
+    assert Decimal(refreshed['holdings'][0]['quantity']) == 2
+    assert Decimal(refreshed['holdings'][0]['value']) == 250
+    assert refreshed['holdings'][0]['cost_basis'] is None
+    assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 250
+
+    async def unavailable(*_args):
+        raise httpx.ConnectError('simulated CoinGecko outage')
+
+    monkeypatch.setattr(crypto_service, '_fetch_market_data', unavailable)
+    failed = (await client.post('/crypto/refresh')).json()
+    assert failed['synced'] is False and failed['error_key'] == 'unreachable'
+    assert Decimal(failed['holdings'][0]['value']) == 250
+    assert Decimal((await client.get('/net-worth/summary')).json()['current']) == 250
