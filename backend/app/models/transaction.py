@@ -1,7 +1,7 @@
 """A single money movement: income, expense, or a transfer between accounts."""
 from datetime import date as date_
 
-from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,6 +12,11 @@ from app.models.tag import transaction_tags
 
 class Transaction(Base, TimestampMixin):
     __tablename__ = "transactions"
+    __table_args__ = (
+        UniqueConstraint("crypto_transaction_id", name="uq_transaction_crypto_trade"),
+        UniqueConstraint("asset_valuation_id", name="uq_transaction_asset_valuation"),
+        UniqueConstraint("idempotency_key", name="uq_transaction_idempotency_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False)
@@ -32,6 +37,19 @@ class Transaction(Base, TimestampMixin):
     reporting_currency_override: Mapped[str | None] = mapped_column(String(3), nullable=True)
     reporting_override_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     adjustment_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Set only for an atomic asset purchase/sale. The public generic
+    # transaction routes cannot create or edit these linked ledger rows.
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
+    crypto_transaction_id: Mapped[int | None] = mapped_column(
+        ForeignKey("crypto_transactions.id", ondelete="RESTRICT"), nullable=True
+    )
+    asset_valuation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("asset_valuations.id", ondelete="RESTRICT"), nullable=True
+    )
+    gross_amount: Mapped[Numeric | None] = mapped_column(Numeric(18, 6), nullable=True)
+    fee_amount: Mapped[Numeric | None] = mapped_column(Numeric(18, 6), nullable=True)
+    prior_asset_value: Mapped[Numeric | None] = mapped_column(Numeric(14, 2), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

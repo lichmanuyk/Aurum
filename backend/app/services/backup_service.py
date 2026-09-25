@@ -13,7 +13,7 @@ app half-restored.
 from app.models.fx import FXRate
 from app.models.crypto import CryptoSyncState
 from app.core.money import currency_code, validate_money, validate_ledger_money, adjustment_rule_violation
-from app.models.enums import TransactionType
+from app.models.enums import CryptoTransactionType, TransactionType
 from app.schemas.fx import FXRateRead
 import logging
 from datetime import datetime, timezone
@@ -55,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 4
+BACKUP_FORMAT_VERSION = 5
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -125,6 +125,8 @@ def _validate_references(payload: BackupPayload) -> None:
         for tag_id in t.tag_ids:
             if tag_id not in tag_ids:
                 raise HTTPException(400, f"Transaction {t.id} references unknown tag_id {tag_id}")
+        if t.asset_id is not None and t.asset_id not in asset_ids:
+            raise HTTPException(400, f"Transaction {t.id} references unknown asset_id {t.asset_id}")
 
     transaction_ids = {row.id for row in payload.transactions}
     for s in payload.transaction_splits:
@@ -153,6 +155,18 @@ def _validate_references(payload: BackupPayload) -> None:
     for tx in payload.crypto_transactions:
         if tx.asset_id not in crypto_holding_asset_ids:
             raise HTTPException(400, f"Crypto transaction {tx.id} references unknown asset_id {tx.asset_id}")
+
+    crypto_ids = {row.id: row for row in payload.crypto_transactions}
+    valuations = {row.id: row for row in payload.asset_valuations}
+    for tx in payload.transactions:
+        if tx.crypto_transaction_id is not None and tx.crypto_transaction_id not in crypto_ids:
+            raise HTTPException(400, f"Transaction {tx.id} references unknown crypto transaction")
+        if tx.asset_valuation_id is not None and tx.asset_valuation_id not in valuations:
+            raise HTTPException(400, f"Transaction {tx.id} references unknown asset valuation")
+        if tx.crypto_transaction_id is not None and crypto_ids[tx.crypto_transaction_id].asset_id != tx.asset_id:
+            raise HTTPException(400, f"Transaction {tx.id} links a different crypto asset")
+        if tx.asset_valuation_id is not None and valuations[tx.asset_valuation_id].asset_id != tx.asset_id:
+            raise HTTPException(400, f"Transaction {tx.id} links a different valuation asset")
 
     for b in payload.budgets:
         if b.category_id not in category_ids:
@@ -189,7 +203,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -203,7 +217,10 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         await session.execute(delete(FXRate))
         await session.execute(delete(CryptoSyncState))
         session.add_all(FXRate(**row.model_dump()) for row in payload.fx_rates)
-        # Children before parents.
+        # Children before parents. Cash-linked trades reference valuation
+        # and crypto rows, so ledger transactions must be removed first.
+        await session.execute(delete(TransactionSplit))
+        await session.execute(delete(Transaction))
         await session.execute(delete(AssetValuation))
         await session.execute(delete(CryptoTransaction))
         await session.execute(delete(CryptoHolding))
@@ -215,8 +232,6 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         # Deleting transactions cascades transaction_tags and
         # transaction_splits rows (ON DELETE CASCADE) — deleted explicitly
         # here anyway to keep this block's ordering self-documenting.
-        await session.execute(delete(TransactionSplit))
-        await session.execute(delete(Transaction))
         await session.execute(delete(Tag))
         await session.execute(delete(Asset))
         await session.execute(delete(Category))
@@ -399,6 +414,35 @@ def _validate_money_backup(payload):
                 raise ValueError(violation)
             native = accounts[tx.account_id].currency
             validate_ledger_money(tx.amount, native)
+            linked = tx.type in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL)
+            if linked:
+                if not tx.asset_id or tx.gross_amount is None or tx.fee_amount is None or not tx.idempotency_key:
+                    raise ValueError("Incomplete asset movement")
+                if bool(tx.crypto_transaction_id) == bool(tx.asset_valuation_id):
+                    raise ValueError("Asset movement needs exactly one linked asset change")
+                if tx.category_id is not None or tx.tag_ids or splits[tx.id] or tx.adjustment_reason is not None:
+                    raise ValueError("Asset movements cannot be categorized as income or spending")
+                validate_ledger_money(tx.gross_amount, native)
+                validate_ledger_money(tx.fee_amount, native)
+                if tx.gross_amount <= 0 or tx.fee_amount < 0 or (tx.type == TransactionType.ASSET_SELL and tx.fee_amount >= tx.gross_amount):
+                    raise ValueError("Invalid asset movement amount or fee")
+                expected = tx.gross_amount + tx.fee_amount if tx.type == TransactionType.ASSET_BUY else tx.gross_amount - tx.fee_amount
+                if tx.amount != expected:
+                    raise ValueError("Asset movement cash leg does not match gross amount and fee")
+                if tx.crypto_transaction_id is not None:
+                    trade = next(row for row in payload.crypto_transactions if row.id == tx.crypto_transaction_id)
+                    if trade.date != tx.date or trade.type != (CryptoTransactionType.BUY if tx.type == TransactionType.ASSET_BUY else CryptoTransactionType.SELL):
+                        raise ValueError("Asset movement and crypto trade disagree")
+                else:
+                    valuation = next(row for row in payload.asset_valuations if row.id == tx.asset_valuation_id)
+                    if valuation.as_of_date != tx.date:
+                        raise ValueError("Asset movement and valuation date disagree")
+                    if tx.prior_asset_value is not None:
+                        validate_money(tx.prior_asset_value, assets[tx.asset_id].currency)
+            elif any(getattr(tx, name) is not None for name in (
+                "asset_id", "crypto_transaction_id", "asset_valuation_id", "gross_amount", "fee_amount", "prior_asset_value", "idempotency_key"
+            )):
+                raise ValueError("Ordinary transaction contains asset movement fields")
             violation = adjustment_rule_violation(tx.type, tx.amount, tx.adjustment_reason, tx.category_id)
             if violation or (tx.type == TransactionType.ADJUSTMENT and splits[tx.id]):
                 raise ValueError(violation or "Adjustments cannot have splits")

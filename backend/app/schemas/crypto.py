@@ -32,6 +32,7 @@ class CryptoTransactionUpdate(BaseModel):
 
 class CryptoTransactionRead(BaseModel):
     quote_currency: str | None
+    cash_movement_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

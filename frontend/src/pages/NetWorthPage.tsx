@@ -10,6 +10,7 @@ import { CapitalRoleSummaryCard } from "@/components/networth/CapitalRoleSummary
 import { RiskAllocationCard } from "@/components/networth/RiskAllocationCard";
 import { AssetsTable } from "@/components/networth/AssetsTable";
 import { AssetFormModal } from "@/components/networth/AssetFormModal";
+import { AssetMovementModal } from "@/components/networth/AssetMovementModal";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { useNetWorthSummary } from "@/hooks/useNetWorth";
 import { useAssets, useDeleteAsset } from "@/hooks/useAssets";
@@ -28,6 +29,7 @@ export function NetWorthPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
+  const [movementAsset, setMovementAsset] = useState<Asset | null>(null);
 
   function openCreateModal() {
     setEditingAsset(null);
@@ -73,12 +75,13 @@ export function NetWorthPage() {
           {isAssetsLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
-            <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} />
+            <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} onMovement={setMovementAsset} />
           )}
         </CardContent>
       </Card>
 
       <AssetFormModal open={modalOpen} onClose={() => setModalOpen(false)} asset={editingAsset} />
+      <AssetMovementModal open={movementAsset !== null} onClose={() => setMovementAsset(null)} asset={movementAsset} />
     </div>
   );
 }

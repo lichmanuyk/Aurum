@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session, get_reporting_session
+from app.models.transaction import Transaction
 from app.schemas.crypto import (
     CryptoHistoryResponse,
     CryptoHoldingCreate,
@@ -111,7 +113,13 @@ async def add_transaction_route(
 async def list_transactions_route(
     asset_id: int, session: AsyncSession = Depends(get_session)
 ) -> list[CryptoTransactionRead]:
-    return await list_transactions(session, asset_id)
+    trades = await list_transactions(session, asset_id)
+    if not trades:
+        return []
+    links = dict((await session.execute(select(Transaction.crypto_transaction_id, Transaction.id).where(
+        Transaction.crypto_transaction_id.in_([trade.id for trade in trades])
+    ))).all())
+    return [CryptoTransactionRead.model_validate(trade).model_copy(update={"cash_movement_id": links.get(trade.id)}) for trade in trades]
 
 
 @router.patch("/transactions/{transaction_id}", response_model=CryptoHoldingRead)

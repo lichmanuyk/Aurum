@@ -590,6 +590,9 @@ async def update_transaction(
     transaction = await session.get(CryptoTransaction, transaction_id)
     if transaction is None:
         raise HTTPException(status_code=404, detail="Crypto transaction not found")
+    from app.models.transaction import Transaction
+    if await session.scalar(select(Transaction.id).where(Transaction.crypto_transaction_id == transaction_id)):
+        raise HTTPException(409, "Edit the linked asset movement instead")
     asset_id = transaction.asset_id
     holding = await _get_holding_or_404(session, asset_id)
 
@@ -633,6 +636,9 @@ async def delete_transaction(session: AsyncSession, transaction_id: int) -> None
     transaction = await session.get(CryptoTransaction, transaction_id)
     if transaction is None:
         raise HTTPException(status_code=404, detail="Crypto transaction not found")
+    from app.models.transaction import Transaction
+    if await session.scalar(select(Transaction.id).where(Transaction.crypto_transaction_id == transaction_id)):
+        raise HTTPException(409, "Delete the linked asset movement instead")
     asset_id = transaction.asset_id
     holding = await _get_holding_or_404(session, asset_id)
     _validate_trade_history([t for t in holding.transactions if t.id != transaction_id])

@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
@@ -23,10 +23,11 @@ interface AssetsTableProps {
   items: Asset[];
   onEdit: (asset: Asset) => void;
   onDelete: (asset: Asset) => void;
+  onMovement: (asset: Asset) => void;
 }
 
-export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
-  const { t } = useTranslation();
+export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTableProps) {
+  const { t, language } = useTranslation();
 
   if (items.length === 0) {
     return <p className="py-10 text-center text-sm text-text-muted">{t("netWorth.assetsTable.empty")}</p>;
@@ -76,6 +77,7 @@ export function AssetsTable({ items, onEdit, onDelete }: AssetsTableProps) {
               )}
             </span>
             <span className="flex shrink-0 gap-1">
+              <button type="button" aria-label={`${asset.name}: ${language === "ru" ? "Покупка и продажа" : "Buy and sell"}`} title={language === "ru" ? "Покупка и продажа" : "Buy and sell"} onClick={() => onMovement(asset)} className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"><ArrowLeftRight size={15} /></button>
               <button
                 type="button"
                 aria-label={t("common.edit")}

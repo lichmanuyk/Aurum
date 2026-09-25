@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { ArrowLeftRight, CalendarSearch, Pencil, SquareDivide, StickyNote, Trash2 } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { getCategoryIcon } from "@/lib/icons";
@@ -37,9 +38,10 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
         {items.map((tx) => {
           const isTransfer = tx.type === "transfer";
           const isAdjustment = tx.type === "adjustment";
+          const isAssetMovement = tx.type === "asset_buy" || tx.type === "asset_sell";
           const isExpense = tx.type === "expense";
           const isSplit = tx.splits.length > 0;
-          const Icon = isTransfer ? ArrowLeftRight : isSplit ? SquareDivide : getCategoryIcon(tx.category?.icon);
+          const Icon = isTransfer || isAssetMovement ? ArrowLeftRight : isSplit ? SquareDivide : getCategoryIcon(tx.category?.icon);
           const color = isTransfer || isSplit ? "var(--text-muted)" : tx.category?.color ?? "var(--text-muted)";
           const categoryLabel = isSplit
             ? tx.splits.map((split) => (split.category ? translateCategoryName(split.category.name) : "?")).join(" + ")
@@ -62,6 +64,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                   {formatTransactionDate(tx.date, Boolean(onJumpToMonth))} · {tx.account.name}
                   {isTransfer && tx.transfer_account_id ? ` ${t("transactions.transferSuffix")}` : ""}
                   {isAdjustment ? ` · ${t("transactions.form.typeAdjustment")}` : ""}
+                  {isAssetMovement ? ` · ${tx.type === "asset_buy" ? "Покупка актива" : "Продажа актива"}` : ""}
                   {categoryLabel ? ` · ${categoryLabel}` : ""}
                   {tx.tags.length > 0 ? ` · ${tx.tags.map((tag) => tag.name).join(", ")}` : ""}
                 </span>
@@ -69,10 +72,10 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
 
               <span
                 className={`shrink-0 text-sm font-medium tabular-nums ${
-                  isTransfer || isAdjustment ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
+                  isTransfer || isAdjustment || isAssetMovement ? "text-text-muted" : isExpense ? "text-text-primary" : "text-success"
                 }`}
               >
-                {isAdjustment ? (Number(tx.amount) > 0 ? "+" : "") : isTransfer ? "" : isExpense ? "-" : "+"}
+                {isAdjustment ? (Number(tx.amount) > 0 ? "+" : "") : isTransfer ? "" : isExpense || tx.type === "asset_buy" ? "-" : "+"}
                 {formatMoney(tx.amount, tx.account.currency)}
                 {tx.type === "transfer" && tx.transfer_account && <span className="block text-xs">→ {tx.destination_amount ? formatMoney(tx.destination_amount, tx.transfer_account.currency) : "?"}</span>}
               </span>
@@ -98,7 +101,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                     <StickyNote size={15} />
                   </button>
                 )}
-                <button
+                {isAssetMovement ? <Link to="/net-worth" className="rounded-md p-1.5 text-xs text-text-muted hover:bg-surface-2">Капитал</Link> : <><button
                   type="button"
                   aria-label={t("common.edit")}
                   onClick={() => onEdit(tx)}
@@ -114,6 +117,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                 >
                   <Trash2 size={15} />
                 </button>
+                </>}
               </span>
             </li>
           );

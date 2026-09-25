@@ -55,7 +55,7 @@ export function CryptoTransactionHistoryModal({ open, onClose, holding, hidden, 
                 </span>
               </span>
               <span className="flex shrink-0 gap-1">
-                <button
+                {tx.cash_movement_id ? <span className="text-xs text-text-muted">{language === "ru" ? "Связано со счётом · Капитал" : "Linked to account · Net worth"}</span> : <><button
                   type="button"
                   aria-label={t("common.edit")}
                   onClick={() => onEdit(tx)}
@@ -71,6 +71,7 @@ export function CryptoTransactionHistoryModal({ open, onClose, holding, hidden, 
                 >
                   <Trash2 size={15} />
                 </button>
+                </>}
               </span>
             </li>
           ))}

@@ -22,6 +22,8 @@ class TransactionType(str, enum.Enum):
     EXPENSE = "expense"
     TRANSFER = "transfer"
     ADJUSTMENT = "adjustment"
+    ASSET_BUY = "asset_buy"
+    ASSET_SELL = "asset_sell"
 
 
 class AssetClass(str, enum.Enum):

@@ -9,6 +9,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_session
 from app.models.asset import Asset, AssetValuation
+from app.models.enums import TransactionType
+from app.models.transaction import Transaction
 from app.schemas.asset import AssetCreate, AssetRead, AssetUpdate, AssetValuationCreate, AssetValuationRead
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -91,6 +93,11 @@ async def add_asset_valuation(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     require_money(payload.value, asset.currency)
+    existing = await session.scalar(select(AssetValuation.id).where(
+        AssetValuation.asset_id == asset_id, AssetValuation.as_of_date == payload.as_of_date
+    ))
+    if existing and await session.scalar(select(Transaction.id).where(Transaction.asset_valuation_id == existing)):
+        raise HTTPException(409, "Edit the linked asset movement to change this valuation")
     upsert_stmt = (
         pg_insert(AssetValuation)
         .values(asset_id=asset_id, value=payload.value, as_of_date=payload.as_of_date)
@@ -122,5 +129,10 @@ async def delete_asset(asset_id: int, session: AsyncSession = Depends(get_sessio
     asset = await session.get(Asset, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    if await session.scalar(select(Transaction.id).where(
+        Transaction.asset_id == asset_id,
+        Transaction.type.in_((TransactionType.ASSET_BUY, TransactionType.ASSET_SELL)),
+    )):
+        raise HTTPException(409, "Delete linked asset movements before deleting the asset")
     await session.delete(asset)
     await session.commit()
