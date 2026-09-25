@@ -72,16 +72,30 @@ export function useDeleteCryptoPortfolio() {
   });
 }
 
-export function useCryptoHoldings(portfolioId?: number | null) {
+export function useCryptoHoldings(portfolioId?: number | null, enabled = true) {
   const currency = useSummaryCurrency();
   const cache = useQueryClient();
   return useQuery({
     queryKey: ["crypto-holdings", portfolioId ?? null, currency],
     queryFn: async () => {
       const result = await fetchCryptoHoldings(portfolioId, currency);
-      if (result.synced) void cache.invalidateQueries({ queryKey: ["quote-status"] });
+      if (result.synced) {
+        // A fresh quote also changes the asset's value on Net Worth and charts.
+        for (const key of ["quote-status", "net-worth-summary", "crypto-history", "assets"])
+          void cache.invalidateQueries({ queryKey: [key] });
+        // Other currency/portfolio views must reload when opened, without
+        // immediately starting a second CoinGecko check in this active view.
+        void cache.invalidateQueries({ queryKey: ["crypto-holdings"], refetchType: "none" });
+      }
       return result;
     },
+    enabled,
+    staleTime: 60 * 60 * 1000,
+    refetchInterval: query => query.state.status === "error" || query.state.data?.error_key
+      ? 5 * 60 * 1000 : 60 * 60 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    retry: false,
   });
 }
 
@@ -101,6 +115,7 @@ export function useCrypto90dPerformance(range: CryptoRange, portfolioId?: number
     queryKey: ["crypto-performance-90d", portfolioId ?? null],
     queryFn: () => fetchCrypto90dPerformance(portfolioId),
     enabled: range === "90d",
+    staleTime: 12 * 60 * 60 * 1000,
   });
 }
 

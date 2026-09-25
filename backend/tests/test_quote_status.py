@@ -37,7 +37,7 @@ async def test_crypto_status_is_read_only_and_reports_staleness(client, monkeypa
     await _add_bitcoin(client)
     async with test_sessionmaker() as session:
         state = await session.get(CryptoSyncState, 1)
-        state.last_synced_at = datetime.now(timezone.utc) - timedelta(hours=25)
+        state.last_synced_at = datetime.now(timezone.utc) - timedelta(hours=1, minutes=1)
         await session.commit()
     async def forbidden(*args):
         raise AssertionError('Status must not refresh prices')

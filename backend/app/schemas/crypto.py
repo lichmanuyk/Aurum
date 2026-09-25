@@ -158,7 +158,7 @@ class CryptoPerformanceResponse(BaseModel):
 
 
 class CryptoSyncResult(BaseModel):
-    # False when the lazy daily check ran but the 24h window hadn't
+    # False when the automatic check ran but the one-hour window hadn't
     # elapsed yet (nothing called CoinGecko this time, error_key is None),
     # OR when a refresh was attempted but CoinGecko couldn't be reached
     # (error_key is set) — check error_key to tell the two apart. Either

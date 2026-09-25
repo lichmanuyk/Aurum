@@ -4,7 +4,7 @@ import { api } from '@/api/client';
 import { useTranslation } from '@/lib/i18n';
 
 // Refresh reference rates while the app is in use. Each tab checks on open,
-// hourly, and on focus after an hour; failed requests retry after five minutes.
+// twice a day, and on focus after 12 hours; failures retry after five minutes.
 export function AutoFxRefresh() {
   const { t } = useTranslation();
   const cache = useQueryClient();
@@ -12,11 +12,13 @@ export function AutoFxRefresh() {
     queryKey: ['automatic-fx-refresh'],
     queryFn: async () => {
       const result = await api.post<{ saved: number; absent_currencies: string[] }>('/fx-rates/nbp/latest', {});
-      await cache.invalidateQueries({ predicate: query => query.queryKey[0] !== 'automatic-fx-refresh' });
+      await cache.invalidateQueries({ predicate: query => !['automatic-fx-refresh', 'crypto-performance-90d'].includes(String(query.queryKey[0])) });
       return result;
     },
-    staleTime: 60 * 60 * 1000,
-    refetchInterval: query => query.state.status === 'error' ? 5 * 60 * 1000 : 60 * 60 * 1000,
+    staleTime: 12 * 60 * 60 * 1000,
+    refetchInterval: query => query.state.status === 'error' ? 5 * 60 * 1000 : 12 * 60 * 60 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     retry: false,
   });
   if (!refresh.error && !refresh.data?.absent_currencies.length) return null;

@@ -1,5 +1,6 @@
 import { SummaryCurrencyScope } from "@/lib/summaryCurrency";
 import { AutoFxRefresh } from "@/components/settings/AutoFxRefresh";
+import { AutoCryptoRefresh } from "@/components/crypto/AutoCryptoRefresh";
 import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -52,6 +53,7 @@ export default function App() {
             content off the sidebar/viewport edges. */}
         <main className="w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
           <AutoFxRefresh />
+          <AutoCryptoRefresh />
           <Routes>
             <Route path="/" element={<SummaryCurrencyScope><DashboardPage /></SummaryCurrencyScope>} />
             <Route path="/net-worth" element={<SummaryCurrencyScope><NetWorthPage /></SummaryCurrencyScope>} />

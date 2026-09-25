@@ -68,10 +68,9 @@ async def delete_portfolio_route(portfolio_id: int, session: AsyncSession = Depe
 async def read_holdings(
     portfolio_id: int | None = None, session: AsyncSession = Depends(get_reporting_session)
 ) -> CryptoSyncResult:
-    """Opening the Crypto tab lands here — this is also where the lazy
-    once-a-day auto-refresh happens (see services/crypto_service.py):
-    prices only actually get re-fetched from CoinGecko if 24h have passed
-    since the last sync, otherwise this just reads the current cache."""
+    """The open app checks here hourly (see services/crypto_service.py):
+    prices are re-fetched from CoinGecko only when the shared one-hour window
+    has elapsed; otherwise this reads the current cache."""
     return await refresh_prices(session, force=False, portfolio_id=portfolio_id)
 
 
@@ -80,7 +79,7 @@ async def refresh_holdings(
     portfolio_id: int | None = None, session: AsyncSession = Depends(get_session)
 ) -> CryptoSyncResult:
     """The "Refresh prices" button — always hits CoinGecko regardless of
-    the once-a-day window."""
+    the one-hour window."""
     return await refresh_prices(session, force=True, portfolio_id=portfolio_id)
 
 

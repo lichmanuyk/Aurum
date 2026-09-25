@@ -40,6 +40,19 @@ test('automatic FX refresh is silent, retries failures and runs again while open
   expect(calls).toBe(2);
   // The refresh also reloads reports before scheduling its next interval.
   await page.waitForLoadState('networkidle');
-  await page.clock.fastForward(60 * 60 * 1000);
+  await page.clock.fastForward(12 * 60 * 60 * 1000);
   await expect.poll(() => calls).toBeGreaterThanOrEqual(3);
+});
+
+test('crypto prices are checked on entry and hourly while the app is open', async ({ page }) => {
+  await page.clock.install();
+  let calls = 0;
+  await page.route('**/api/crypto/holdings?*', route => {
+    calls++;
+    return route.fulfill({ json: { synced: false, last_synced_at: null, error_key: null, holdings: [] } });
+  });
+  await page.goto('/accounts');
+  await expect.poll(() => calls).toBe(1);
+  await page.clock.fastForward(60 * 60 * 1000);
+  await expect.poll(() => calls).toBe(2);
 });
