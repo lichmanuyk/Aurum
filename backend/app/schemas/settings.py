@@ -1,9 +1,16 @@
 from app.core.money import Currency
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import APP_VERSION
+
+# The Dashboard/Net Worth/Crypto display-currency feature deliberately
+# offers only these three, not the full CURRENCIES list `Currency` allows —
+# a curated set for the one user this fork is built for, not a general
+# currency picker. See docs/tasks/display-currency-preferences.md.
+DisplayCurrency = Literal["PLN", "USD", "EUR"]
 
 
 class AppSettingsRead(BaseModel):
@@ -16,6 +23,13 @@ class AppSettingsRead(BaseModel):
     idle_cash_threshold_amount: Decimal
     idle_cash_threshold_currency: str
     idle_cash_threshold_days: int
+    # General display currency for the three summary pages. None = no
+    # explicit choice yet — the frontend falls back to `currency` above.
+    summary_currency: DisplayCurrency | None = None
+    # Per-page overrides. None = inherit summary_currency.
+    dashboard_currency: DisplayCurrency | None = None
+    net_worth_currency: DisplayCurrency | None = None
+    crypto_currency: DisplayCurrency | None = None
     # Not a stored column: the default fills itself in when FastAPI validates
     # the ORM row against this model, so neither route has to assemble it.
     # It lives on this (authenticated) response rather than on /api/health,
@@ -45,3 +59,10 @@ class AppSettingsUpdate(BaseModel):
     idle_cash_threshold_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     idle_cash_threshold_currency: Currency | None = None
     idle_cash_threshold_days: int | None = Field(default=None, ge=1, le=365)
+    # These four are the only fields where an explicitly-sent null is
+    # meaningful (reset to "no choice"/"inherit") rather than rejected — see
+    # NULLABLE_DISPLAY_CURRENCY_FIELDS in api/routes/settings.py.
+    summary_currency: DisplayCurrency | None = None
+    dashboard_currency: DisplayCurrency | None = None
+    net_worth_currency: DisplayCurrency | None = None
+    crypto_currency: DisplayCurrency | None = None

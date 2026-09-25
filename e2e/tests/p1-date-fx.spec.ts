@@ -21,7 +21,14 @@ test('year boundary uses dated FX, display currency preserves EUR money and miss
     }
     await page.goto('/');
     const income = page.locator('xpath=//p[text()="Реальный доход"]/following-sibling::p[1]');
-    const currency = page.getByLabel(/Валюта сводки|Summary currency/);
+    // The old always-visible summary-currency selector is gone — the
+    // Dashboard's display currency now comes from Settings (summary_currency),
+    // set here directly via the API, same as a user would via the Settings
+    // page's DisplayCurrencyCard (covered by summary-currency.spec.ts).
+    async function setDashboardCurrency(value: string | null) {
+      expect((await request.patch('/api/settings', { data: { summary_currency: value } })).ok()).toBeTruthy();
+      await page.reload();
+    }
     await page.getByRole('button', { name: 'Дек', exact: true }).click();
     await page.getByRole('button', { name: /^\d{4}$/ }).first().click();
     await page.getByRole('option', { name: '2025' }).click();
@@ -30,9 +37,11 @@ test('year boundary uses dated FX, display currency preserves EUR money and miss
     await page.getByRole('option', { name: '2026' }).click();
     await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('500');
-    await currency.selectOption('USD');
+    await setDashboardCurrency('USD');
+    await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('250');
-    await currency.selectOption('EUR');
+    await setDashboardCurrency('EUR');
+    await page.getByRole('button', { name: 'Янв', exact: true }).click();
     await expect(income).toContainText('100');
     const accounts = await (await requestWithRateLimit(request, '/api/accounts')).json();
     expect(Number(accounts.find((item: { id: number }) => item.id === account.id).balance)).toBe(200);
@@ -40,9 +49,8 @@ test('year boundary uses dated FX, display currency preserves EUR money and miss
     expect((await request.post('/api/transactions', { data: {
       account_id: account.id, type: 'income', amount: '10', date: '2026-01-20', description: 'P1 missing FX',
     } })).ok()).toBeTruthy();
-    await page.reload();
+    await setDashboardCurrency('PLN');
     await page.getByRole('button', { name: 'Янв', exact: true }).click();
-    await currency.selectOption('PLN');
     await expect(page.getByRole('link', { name: /Проверить курсы и настройки|Check exchange rates and settings/ })).toBeVisible();
     await expect(income).toContainText('—');
   } finally {

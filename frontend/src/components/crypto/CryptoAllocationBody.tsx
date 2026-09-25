@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -62,7 +62,7 @@ function DonutTooltip({
   hidden: boolean;
   otherLabel: string;
 }) {
-  const { formatCryptoAmount } = useSummaryFormat();
+  const { formatCryptoAmount } = useSectionFormat();
   if (!active || !payload?.length) return null;
   const slice = payload[0].payload;
   return (
@@ -83,7 +83,7 @@ function DonutTooltip({
  * stretch across whatever space is left next to the donut the way a
  * flex-1 row did. */
 export function CryptoAllocationBody({ holdings, isLoading, hidden }: CryptoAllocationBodyProps) {
-  const { formatCryptoAmount } = useSummaryFormat();
+  const { formatCryptoAmount } = useSectionFormat();
   const { t } = useTranslation();
 
   if (isLoading) {

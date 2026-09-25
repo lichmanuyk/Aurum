@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { useState } from "react";
 import { SquareDivide } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -15,7 +15,7 @@ interface SpendingByCategoryCardProps {
 }
 
 function DonutTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: CategoryBreakdownItem }> }) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   if (!active || !payload?.length) return null;
   const item = payload[0].payload;
   return (
@@ -29,7 +29,7 @@ function DonutTooltip({ active, payload }: { active?: boolean; payload?: Array<{
 }
 
 export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t } = useTranslation();
   // The breakdown lives in a modal, not expanded inline — a category with
   // many subcategories (or many split purchases) would otherwise push this

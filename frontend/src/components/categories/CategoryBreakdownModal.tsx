@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { Dialog } from "@/components/ui/Dialog";
 import { getCategoryIcon } from "@/lib/icons";
 
@@ -37,7 +37,7 @@ export function CategoryBreakdownModal({
   totalAmount,
   children,
 }: CategoryBreakdownModalProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t } = useTranslation();
   const total = Number(totalAmount);
 

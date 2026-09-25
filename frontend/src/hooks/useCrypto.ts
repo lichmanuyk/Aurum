@@ -1,4 +1,4 @@
-import { useSummaryCurrency } from "@/lib/summaryCurrency";
+import { useSectionCurrency } from "@/lib/displayCurrency";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addCryptoTransaction,
@@ -73,7 +73,7 @@ export function useDeleteCryptoPortfolio() {
 }
 
 export function useCryptoHoldings(portfolioId?: number | null, enabled = true) {
-  const currency = useSummaryCurrency();
+  const currency = useSectionCurrency();
   const cache = useQueryClient();
   return useQuery({
     queryKey: ["crypto-holdings", portfolioId ?? null, currency],
@@ -100,7 +100,7 @@ export function useCryptoHoldings(portfolioId?: number | null, enabled = true) {
 }
 
 export function useCryptoHistory(range: CryptoRange, portfolioId?: number | null) {
-  const currency = useSummaryCurrency();
+  const currency = useSectionCurrency();
   return useQuery({
     queryKey: ["crypto-history", range, portfolioId ?? null, currency],
     queryFn: () => fetchCryptoHistory(range, portfolioId, currency),

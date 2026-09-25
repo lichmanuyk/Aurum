@@ -1,4 +1,4 @@
-import { useSummaryFormat } from "@/lib/summaryCurrency";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { maskAmount } from "@/lib/format";
@@ -146,7 +146,7 @@ export function CryptoStatsRow({
   performance90d,
   isPerformance90dLoading,
 }: CryptoStatsRowProps) {
-  const { formatCurrency } = useSummaryFormat();
+  const { formatCurrency } = useSectionFormat();
   const { t, language } = useTranslation();
 
   if (isLoading) {
