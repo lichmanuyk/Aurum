@@ -1,6 +1,7 @@
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, formatSignedCurrency, getIntlLocale } from "@/lib/format";
+import { useSectionFormat } from "@/lib/displayCurrency";
+import { getIntlLocale } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { CashFlowResponse } from "@/types";
 
@@ -47,12 +48,16 @@ function ChartTooltip({
   incomeLabel,
   expenseLabel,
   netLabel,
+  formatCurrency,
+  formatSignedCurrency,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
   incomeLabel: string;
   expenseLabel: string;
   netLabel: string;
+  formatCurrency: (amount: number | string) => string;
+  formatSignedCurrency: (amount: number | string) => string;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -74,6 +79,7 @@ function ChartTooltip({
 
 export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
   const { t } = useTranslation();
+  const { formatCurrency, formatSignedCurrency } = useSectionFormat();
   const incomeLabel = t("cashFlow.income");
   const expenseLabel = t("cashFlow.expense");
   const netLabel = t("cashFlow.net");
@@ -130,7 +136,10 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
                   />
                 )}
                 <Tooltip
-                  content={<ChartTooltip incomeLabel={incomeLabel} expenseLabel={expenseLabel} netLabel={netLabel} />}
+                  content={<ChartTooltip
+                    incomeLabel={incomeLabel} expenseLabel={expenseLabel} netLabel={netLabel}
+                    formatCurrency={formatCurrency} formatSignedCurrency={formatSignedCurrency}
+                  />}
                   cursor={{ fill: "var(--surface-2)" }}
                 />
                 <Legend

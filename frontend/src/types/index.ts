@@ -641,6 +641,8 @@ export interface AppSettings {
   dashboard_currency: DisplayCurrency | null;
   net_worth_currency: DisplayCurrency | null;
   crypto_currency: DisplayCurrency | null;
+  cash_flow_currency: DisplayCurrency | null;
+  reports_currency: DisplayCurrency | null;
   /** Read-only: the running backend release. Comes back here rather than
    * from /api/health, which is served without auth. */
   app_version: string;

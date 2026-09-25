@@ -5,7 +5,7 @@ import { formatCurrency, formatCryptoAmount, formatSignedCurrency } from "@/lib/
 import { useTranslation } from "@/lib/i18n";
 import type { AppSettings, DisplayCurrency } from "@/types";
 
-type Section = "dashboard" | "netWorth" | "crypto";
+type Section = "dashboard" | "netWorth" | "crypto" | "cashFlow" | "reports";
 
 // The old, browser-only selector this feature replaces (see lib/summaryCurrency.tsx,
 // removed) stored its choice under this key. LEGACY_MIGRATED_KEY guarantees the
@@ -18,6 +18,8 @@ const SECTIONS: { section: Section; test: (path: string) => boolean; overrideFie
   { section: "dashboard", test: (p) => p === "/", overrideField: "dashboard_currency" },
   { section: "netWorth", test: (p) => p.startsWith("/net-worth"), overrideField: "net_worth_currency" },
   { section: "crypto", test: (p) => p.startsWith("/crypto"), overrideField: "crypto_currency" },
+  { section: "cashFlow", test: (p) => p.startsWith("/cash-flow"), overrideField: "cash_flow_currency" },
+  { section: "reports", test: (p) => p.startsWith("/reports"), overrideField: "reports_currency" },
 ];
 
 function sectionForPath(pathname: string) {
@@ -39,7 +41,9 @@ interface DisplayCurrencyContextValue {
 const DisplayCurrencyContext = createContext<DisplayCurrencyContextValue | null>(null);
 
 /** Resolves override -> summary_currency -> primary, the shared inheritance
- * rule for all three summary pages (see docs/tasks/display-currency-preferences.md). */
+ * rule for every section using this feature (Dashboard/Net Worth/Crypto —
+ * see docs/tasks/display-currency-preferences.md — and Cash Flow/Reports —
+ * see docs/tasks/cash-flow-reports-display-currency.md). */
 export function resolveConfiguredCurrency(
   settings: AppSettings | undefined, primary: string, section: Section
 ): string {
@@ -128,8 +132,8 @@ function useDisplayCurrencyContext(): DisplayCurrencyContextValue {
   };
 }
 
-/** For Dashboard/NetWorth/Crypto's data hooks and formatting — the currency
- * to query and render with right now (accounts for the temporary view). */
+/** For each section's data hooks and formatting — the currency to query and
+ * render with right now (accounts for the temporary view). */
 export function useSectionCurrency(): string {
   return useDisplayCurrencyContext().effectiveCurrency;
 }
@@ -143,9 +147,9 @@ export function useSectionFormat() {
   };
 }
 
-/** For Topbar's compact header action — null on every page other than the
- * three summary pages, and also null when there's nothing to temporarily
- * view (the configured currency already matches the primary one). */
+/** For Topbar's compact header action — null on every page outside SECTIONS
+ * above, and also null when there's nothing to temporarily view (the
+ * configured currency already matches the primary one). */
 export function useDisplayCurrencyAction(): {
   isTemporaryPrimaryView: boolean;
   toggle: () => void;

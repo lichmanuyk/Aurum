@@ -26,7 +26,7 @@ async def test_adjustments_change_balance_not_income_and_survive_restore(client,
     assert capital.status_code == 200, capital.text
     assert Decimal(capital.json()['current']) == Decimal('100.12')
     backup = (await client.get('/backup/export')).json()
-    assert backup['aurum_backup_version'] == 8
+    assert backup['aurum_backup_version'] == 9
     assert (await client.post('/backup/import', json=backup)).status_code == 200
     bad = await client.patch(f'/transactions/{ident}', json={'type':'income'})
     assert bad.status_code == 422

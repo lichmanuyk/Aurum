@@ -15,6 +15,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # — every other field stays rejected below.
 NULLABLE_DISPLAY_CURRENCY_FIELDS = {
     "summary_currency", "dashboard_currency", "net_worth_currency", "crypto_currency",
+    "cash_flow_currency", "reports_currency",
 }
 
 

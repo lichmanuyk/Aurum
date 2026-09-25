@@ -30,6 +30,8 @@ class AppSettingsRead(BaseModel):
     dashboard_currency: DisplayCurrency | None = None
     net_worth_currency: DisplayCurrency | None = None
     crypto_currency: DisplayCurrency | None = None
+    cash_flow_currency: DisplayCurrency | None = None
+    reports_currency: DisplayCurrency | None = None
     # Not a stored column: the default fills itself in when FastAPI validates
     # the ORM row against this model, so neither route has to assemble it.
     # It lives on this (authenticated) response rather than on /api/health,
@@ -59,10 +61,12 @@ class AppSettingsUpdate(BaseModel):
     idle_cash_threshold_amount: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     idle_cash_threshold_currency: Currency | None = None
     idle_cash_threshold_days: int | None = Field(default=None, ge=1, le=365)
-    # These four are the only fields where an explicitly-sent null is
-    # meaningful (reset to "no choice"/"inherit") rather than rejected — see
+    # These are the only fields where an explicitly-sent null is meaningful
+    # (reset to "no choice"/"inherit") rather than rejected — see
     # NULLABLE_DISPLAY_CURRENCY_FIELDS in api/routes/settings.py.
     summary_currency: DisplayCurrency | None = None
     dashboard_currency: DisplayCurrency | None = None
     net_worth_currency: DisplayCurrency | None = None
     crypto_currency: DisplayCurrency | None = None
+    cash_flow_currency: DisplayCurrency | None = None
+    reports_currency: DisplayCurrency | None = None
