@@ -68,3 +68,42 @@ async def test_goal_progress_does_not_move_cash_and_asset_value_starts_on_its_da
     assert current.status_code == 200, current.text
     assert money((await client.get('/net-worth/summary')).json()['current']) == 1220
     assert money((await client.get('/accounts')).json()[0]['balance']) == 1000
+
+
+async def test_goal_reservation_reduces_available_cash_without_moving_capital(client, account_id):
+    today = str(date.today())
+    opening = await client.post('/transactions', json={
+        'account_id': account_id, 'type': 'adjustment', 'amount': '1000',
+        'adjustment_reason': 'opening_balance', 'description': 'Opening cash', 'date': today,
+    })
+    assert opening.status_code == 201, opening.text
+    goal = (await client.post('/goals', json={'name': 'Reserved fund', 'currency': 'USD', 'target_amount': '800'})).json()
+
+    def reserve(amount, source=account_id):
+        return client.post(f"/goals/{goal['id']}/contributions", json={
+            'account_id': source, 'amount': str(amount), 'date': today,
+        })
+
+    first = await reserve(300)
+    assert first.status_code == 201, first.text
+    assert money(first.json()['reserved_amount']) == 300
+    account = (await client.get('/accounts')).json()[0]
+    assert money(account['balance']) == 1000
+    assert money(account['reserved_balance']) == 300
+    assert money(account['available_balance']) == 700
+    assert money((await client.get('/net-worth/summary')).json()['current']) == 1000
+    assert money((await client.get('/cash-flow')).json()['total_expense']) == 0
+    assert (await reserve(701)).status_code == 409
+    assert (await reserve(-301)).status_code == 422
+    assert (await client.patch(f'/accounts/{account_id}', json={'is_archived': True})).status_code == 409
+    assert (await client.delete(f'/accounts/{account_id}')).status_code == 409
+
+    backup = (await client.get('/backup/export')).json()
+    assert backup['aurum_backup_version'] == 7
+    assert backup['goal_contributions'][0]['account_id'] == account_id
+    assert (await client.post('/backup/import', json=backup)).status_code == 200
+    assert money((await client.get('/accounts')).json()[0]['available_balance']) == 700
+    assert (await reserve(-100)).status_code == 201
+    assert money((await client.get('/accounts')).json()[0]['available_balance']) == 800
+    assert (await client.delete(f"/goals/{goal['id']}")).status_code == 204
+    assert money((await client.get('/accounts')).json()[0]['available_balance']) == 1000

@@ -4,7 +4,10 @@ import type { GoalContributionInput, GoalInput } from "@/types";
 
 function useInvalidateGoals() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["goals"] });
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ["goals"] });
+    queryClient.invalidateQueries({ queryKey: ["accounts"] });
+  };
 }
 
 export function useGoals() {

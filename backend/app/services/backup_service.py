@@ -55,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 6
+BACKUP_FORMAT_VERSION = 7
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -105,6 +105,8 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
 
 def _validate_references(payload: BackupPayload) -> None:
     account_ids = {row.id for row in payload.accounts}
+    account_currencies = {row.id: row.currency for row in payload.accounts}
+    goal_currencies = {row.id: row.currency for row in payload.goals}
     category_ids = {row.id for row in payload.categories}
     asset_ids = {row.id for row in payload.assets}
     tag_ids = {row.id for row in payload.tags}
@@ -172,10 +174,11 @@ def _validate_references(payload: BackupPayload) -> None:
         if b.category_id not in category_ids:
             raise HTTPException(400, f"Budget {b.id} references unknown category_id {b.category_id}")
 
-    goal_ids = {row.id for row in payload.goals}
     for c in payload.goal_contributions:
-        if c.goal_id not in goal_ids:
+        if c.goal_id not in goal_currencies:
             raise HTTPException(400, f"Goal contribution {c.id} references unknown goal_id {c.goal_id}")
+        if c.account_id is not None and account_currencies.get(c.account_id) != goal_currencies[c.goal_id]:
+            raise HTTPException(400, f"Goal contribution {c.id} has no matching account currency")
 
     for r in payload.recurring_transactions:
         if r.account_id not in account_ids:
@@ -203,7 +206,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "

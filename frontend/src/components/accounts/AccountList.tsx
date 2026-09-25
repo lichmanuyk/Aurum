@@ -50,6 +50,9 @@ export function AccountList({ items, onEdit, onToggleArchived, onDelete }: Accou
               <span className="block truncate text-xs text-text-muted">
                 {t(`account.type.${account.type}` as TranslationKey)}
               </span>
+              {Number(account.reserved_balance) > 0 && <span className="block truncate text-xs" style={{ color: Number(account.available_balance) < 0 ? "var(--danger)" : "var(--text-muted)" }}>
+                {t("account.reserved")}: {formatMoney(account.reserved_balance, account.currency)} · {t("account.available")}: {formatMoney(account.available_balance, account.currency)}
+              </span>}
             </span>
             <span
               className="shrink-0 text-sm font-medium tabular-nums"

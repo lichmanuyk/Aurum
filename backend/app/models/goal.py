@@ -32,6 +32,7 @@ class GoalContribution(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     goal_id: Mapped[int] = mapped_column(ForeignKey("goals.id", ondelete="CASCADE"), nullable=False)
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True)
     amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
     date: Mapped[date_] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)

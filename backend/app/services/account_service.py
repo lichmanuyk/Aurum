@@ -6,7 +6,7 @@ net_worth_service.py uses for Cash.
 """
 
 from app.services.settings_service import get_or_create_app_settings
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from app.models.recurring import RecurringTransaction
 from app.services.money_service import native_balances
 from collections import defaultdict
@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.goal import GoalContribution
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate, AccountWithBalance
@@ -26,7 +27,14 @@ async def _account_balances(session: AsyncSession) -> dict[int, Decimal]:
     return await native_balances(session)
 
 
-def _to_read(account: Account, balance: Decimal) -> AccountWithBalance:
+async def _reserved_balances(session: AsyncSession) -> dict[int, Decimal]:
+    rows = await session.execute(select(GoalContribution.account_id, func.sum(GoalContribution.amount)).where(
+        GoalContribution.account_id.is_not(None)
+    ).group_by(GoalContribution.account_id))
+    return dict(rows.all())
+
+
+def _to_read(account: Account, balance: Decimal, reserved: Decimal = Decimal("0")) -> AccountWithBalance:
     return AccountWithBalance(
         id=account.id,
         name=account.name,
@@ -35,6 +43,8 @@ def _to_read(account: Account, balance: Decimal) -> AccountWithBalance:
         color=account.color,
         is_archived=account.is_archived,
         balance=balance,
+        reserved_balance=reserved,
+        available_balance=balance - reserved,
     )
 
 
@@ -44,7 +54,8 @@ async def list_accounts(session: AsyncSession, include_archived: bool) -> list[A
         stmt = stmt.where(Account.is_archived.is_(False))
     accounts = (await session.execute(stmt)).scalars().all()
     balances = await _account_balances(session)
-    return [_to_read(account, balances.get(account.id, Decimal("0"))) for account in accounts]
+    reserved = await _reserved_balances(session)
+    return [_to_read(account, balances.get(account.id, Decimal("0")), reserved.get(account.id, Decimal("0"))) for account in accounts]
 
 
 async def create_account(session: AsyncSession, payload: AccountCreate) -> AccountWithBalance:
@@ -68,12 +79,15 @@ async def update_account(session: AsyncSession, account_id: int, payload: Accoun
     if payload.currency is not None and payload.currency != account.currency:
         if await _has_history(session, account_id):
             raise HTTPException(409, "Currency cannot change after money or recurring templates exist")
+    reserved = (await _reserved_balances(session)).get(account_id, Decimal("0"))
+    if reserved > 0 and (payload.is_archived or (payload.type is not None and payload.type != account.type)):
+        raise HTTPException(409, "Release goal reservations before archiving or changing account type")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
     await session.commit()
     await session.refresh(account)
     balances = await _account_balances(session)
-    return _to_read(account, balances.get(account.id, Decimal("0")))
+    return _to_read(account, balances.get(account.id, Decimal("0")), reserved)
 
 
 async def delete_account(session: AsyncSession, account_id: int) -> None:
@@ -87,6 +101,8 @@ async def delete_account(session: AsyncSession, account_id: int) -> None:
 
 
 async def _has_history(session, account_id):
+    if await session.scalar(select(GoalContribution.id).where(GoalContribution.account_id == account_id).limit(1)):
+        return True
     for model in (Transaction, RecurringTransaction):
         if await session.scalar(select(model.id).where(or_(model.account_id == account_id, model.transfer_account_id == account_id)).limit(1)):
             return True

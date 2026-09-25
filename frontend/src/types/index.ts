@@ -20,6 +20,8 @@ export interface Account {
 // a silent `undefined` at runtime.
 export interface AccountWithBalance extends Account {
   balance: string;
+  reserved_balance: string;
+  available_balance: string;
 }
 
 export interface AccountInput {
@@ -401,6 +403,7 @@ export interface Goal {
   target_amount: string;
   target_date: string | null;
   current_amount: string;
+  reserved_amount: string;
   remaining: string;
   percent: number;
   is_reached: boolean;
@@ -415,6 +418,7 @@ export interface GoalInput {
 
 export interface GoalContributionInput {
   amount: string;
+  account_id?: number | null;
   date: string;
   note?: string | null;
 }
