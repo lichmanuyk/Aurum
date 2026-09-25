@@ -147,7 +147,7 @@ export function ReportsPage() {
       {reportError ? <MoneyError error={reportError} /> : <CategorySpendingChart report={report} isLoading={isReportLoading} />}
 
       <MoneyError error={rankingError} />
-      <CategoryRankingCard
+      {!rankingError && <CategoryRankingCard
         items={ranking?.items ?? []}
         isLoading={isRankingLoading}
         selectedCategoryId={categoryId}
@@ -155,7 +155,7 @@ export function ReportsPage() {
           setCategoryId(id);
           setPage(1);
         }}
-      />
+      />}
 
       <Card>
         <CardHeader>
