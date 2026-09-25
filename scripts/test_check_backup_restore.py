@@ -28,8 +28,9 @@ class RestoreCheckTests(unittest.TestCase):
                     check_backup_restore.latest_backup(now)
 
     def test_compare_checks_every_section_except_export_time(self):
-        original = {'exported_at': 'a', 'accounts': [{'id': 1}], 'transactions': [{'id': 2}]}
-        check_backup_restore.compare(original, {**original, 'exported_at': 'b'})
+        original = {'exported_at': 'a', 'aurum_backup_version': 5,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}]}
+        check_backup_restore.compare(original, {**original, 'exported_at': 'b', 'aurum_backup_version': 6})
         with self.assertRaisesRegex(RuntimeError, 'transactions'):
             check_backup_restore.compare(original, {**original, 'transactions': []})
 

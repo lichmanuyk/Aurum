@@ -17,7 +17,7 @@ async def test_opening_unknown_cost_survives_trades_and_backup(client, monkeypat
         assert response.status_code==201,response.text
         assert response.json()['cost_basis'] is None
     backup=(await client.get('/backup/export')).json()
-    assert backup['aurum_backup_version']==5
+    assert backup['aurum_backup_version']==6
     assert (await client.post('/backup/import',json=backup)).status_code==200
     h=(await client.get('/crypto/holdings')).json()['holdings'][0]
     assert Decimal(h['quantity'])==2 and h['profit_loss'] is None

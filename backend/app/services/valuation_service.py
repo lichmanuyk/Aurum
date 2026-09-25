@@ -21,7 +21,9 @@ async def stock_series(session, start, end, *, account_types=None, asset_ids=Non
                 for account_id, amount in native_legs(tx):
                     if account_id in accounts:
                         events.append((tx.date, "cash", account_id, amount))
-    for v in (await session.scalars(select(AssetValuation).where(AssetValuation.as_of_date <= end))).all():
+    for v in (await session.scalars(select(AssetValuation).where(AssetValuation.as_of_date <= end).order_by(
+        AssetValuation.as_of_date, AssetValuation.id
+    ))).all():
         if v.asset_id in assets:
             events.append((v.as_of_date, "asset", v.asset_id, v.value))
     events.sort(key=lambda row: row[0])

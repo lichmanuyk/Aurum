@@ -3,7 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,16 +70,18 @@ async def _validate(session: AsyncSession, payload: AssetMovementInput):
 
 
 async def _manual_valuation(session: AsyncSession, asset: Asset, payload: AssetMovementInput, transaction: Transaction):
+    await session.scalar(select(Asset.id).where(Asset.id == asset.id).with_for_update())
     valuation = await session.scalar(select(AssetValuation).where(
         AssetValuation.asset_id == asset.id, AssetValuation.as_of_date == payload.date
-    ))
+    ).order_by(AssetValuation.id.desc()).limit(1))
     if valuation:
         linked = await session.scalar(select(Transaction.id).where(Transaction.asset_valuation_id == valuation.id))
         if linked and linked != transaction.id:
-            raise HTTPException(409, "An asset movement already exists for this date")
-        transaction.prior_asset_value = valuation.value
-        valuation.value = payload.asset_value_after
-    else:
+            valuation = None
+        else:
+            transaction.prior_asset_value = valuation.value
+            valuation.value = payload.asset_value_after
+    if valuation is None:
         transaction.prior_asset_value = None
         valuation = AssetValuation(asset_id=asset.id, value=payload.asset_value_after, as_of_date=payload.date)
         session.add(valuation)
@@ -175,7 +177,9 @@ async def delete_movement(session: AsyncSession, movement_id: int) -> None:
     asset_id = transaction.asset_id
     prior = transaction.prior_asset_value
     if valuation_id is not None and await session.scalar(select(AssetValuation.id).where(
-        AssetValuation.asset_id == asset_id, AssetValuation.as_of_date > transaction.date
+        AssetValuation.asset_id == asset_id,
+        or_(AssetValuation.as_of_date > transaction.date,
+            (AssetValuation.as_of_date == transaction.date) & (AssetValuation.id > valuation_id)),
     ).limit(1)):
         raise HTTPException(409, "Remove later valuations before deleting this movement")
     await session.delete(transaction)
