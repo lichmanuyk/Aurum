@@ -54,7 +54,7 @@ _CLASS_META: dict[str, tuple[str, str, str]] = {
     # skill's validated 8-slot order (blue, orange, aqua, yellow, magenta,
     # green, violet, red) in this exact sequence — an adjacent-pair-safe
     # order for a segmented bar/donut; do not reorder without re-validating.
-    "cash": ("Наличные", "#2a78d6", "wallet"),  # slot 1 blue
+    "cash": ("Счета и наличные", "#2a78d6", "wallet"),  # slot 1 blue
     AssetClass.INVESTMENTS.value: ("Инвестиции", "#eb6834", "trending-up"),  # slot 2 orange
     AssetClass.CRYPTO.value: ("Криптовалюта", "#1baf7a", "bitcoin"),  # slot 3 aqua
     AssetClass.REAL_ESTATE.value: ("Недвижимость", "#eda100", "building-2"),  # slot 4 yellow
