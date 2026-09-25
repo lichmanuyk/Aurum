@@ -25,8 +25,17 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
   const { formatCurrency } = useSectionFormat();
   // The subcategory breakdown lives in a modal, not expanded inline — a
   // category with many subcategories would otherwise push the whole ranking
-  // list taller and shift every row below it.
-  const [breakdownItem, setBreakdownItem] = useState<CategoryRankingItem | null>(null);
+  // list taller and shift every row below it. Only the id is kept, not a
+  // snapshot of the item itself — `items` gets refetched (with different
+  // amounts) whenever the display currency changes, and re-deriving the
+  // open item from the *current* `items` on every render is what stops the
+  // modal from showing yesterday's amounts under today's currency label. If
+  // the id isn't in the current `items` (e.g. mid-refetch), the modal just
+  // closes instead of showing stale numbers.
+  const [breakdownCategoryId, setBreakdownCategoryId] = useState<number | null>(null);
+  const breakdownItem = breakdownCategoryId !== null
+    ? items.find((item) => item.category_id === breakdownCategoryId) ?? null
+    : null;
 
   return (
     <Card>
@@ -60,7 +69,7 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
                         <button
                           type="button"
                           aria-label={t("common.expand")}
-                          onClick={() => setBreakdownItem(item)}
+                          onClick={() => setBreakdownCategoryId(item.category_id)}
                           className="rounded-md p-1.5 text-text-muted hover:text-text-primary"
                         >
                           <SquareDivide size={14} />
@@ -108,7 +117,7 @@ export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSe
       {breakdownItem && (
         <CategoryBreakdownModal
           open
-          onClose={() => setBreakdownItem(null)}
+          onClose={() => setBreakdownCategoryId(null)}
           categoryId={breakdownItem.category_id}
           categoryName={breakdownItem.name}
           totalAmount={breakdownItem.amount}
