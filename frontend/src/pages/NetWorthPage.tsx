@@ -29,7 +29,8 @@ export function NetWorthPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
-  const [movementAsset, setMovementAsset] = useState<Asset | null>(null);
+  const [movementAssetId, setMovementAssetId] = useState<number | null>(null);
+  const movementAsset = assets?.find((item) => item.id === movementAssetId) ?? null;
 
   function openCreateModal() {
     setEditingAsset(null);
@@ -75,13 +76,13 @@ export function NetWorthPage() {
           {isAssetsLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
-            <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} onMovement={setMovementAsset} />
+            <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} onMovement={(asset) => setMovementAssetId(asset.id)} />
           )}
         </CardContent>
       </Card>
 
       <AssetFormModal open={modalOpen} onClose={() => setModalOpen(false)} asset={editingAsset} />
-      <AssetMovementModal open={movementAsset !== null} onClose={() => setMovementAsset(null)} asset={movementAsset} />
+      <AssetMovementModal open={movementAssetId !== null} onClose={() => setMovementAssetId(null)} asset={movementAsset} />
     </div>
   );
 }

@@ -20,7 +20,7 @@ interface TransactionsTableProps {
 }
 
 export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: TransactionsTableProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { data: categories } = useCategories();
   const [noteTransaction, setNoteTransaction] = useState<Transaction | null>(null);
 
@@ -64,7 +64,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                   {formatTransactionDate(tx.date, Boolean(onJumpToMonth))} · {tx.account.name}
                   {isTransfer && tx.transfer_account_id ? ` ${t("transactions.transferSuffix")}` : ""}
                   {isAdjustment ? ` · ${t("transactions.form.typeAdjustment")}` : ""}
-                  {isAssetMovement ? ` · ${tx.type === "asset_buy" ? "Покупка актива" : "Продажа актива"}` : ""}
+                  {isAssetMovement ? ` · ${tx.type === "asset_buy" ? (language === "ru" ? "Покупка актива" : "Asset purchase") : (language === "ru" ? "Продажа актива" : "Asset sale")}` : ""}
                   {categoryLabel ? ` · ${categoryLabel}` : ""}
                   {tx.tags.length > 0 ? ` · ${tx.tags.map((tag) => tag.name).join(", ")}` : ""}
                 </span>
@@ -101,7 +101,7 @@ export function TransactionsTable({ items, onEdit, onDelete, onJumpToMonth }: Tr
                     <StickyNote size={15} />
                   </button>
                 )}
-                {isAssetMovement ? <Link to="/net-worth" className="rounded-md p-1.5 text-xs text-text-muted hover:bg-surface-2">Капитал</Link> : <><button
+                {isAssetMovement ? <Link to="/net-worth" className="rounded-md p-1.5 text-xs text-text-muted hover:bg-surface-2">{language === "ru" ? "Капитал" : "Net worth"}</Link> : <><button
                   type="button"
                   aria-label={t("common.edit")}
                   onClick={() => onEdit(tx)}

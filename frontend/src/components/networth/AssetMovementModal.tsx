@@ -37,7 +37,7 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
       setForm(empty(asset, eligible[0]?.id ?? 0));
       setError("");
     }
-  }, [open, asset?.id, eligible[0]?.id]);
+  }, [open, asset?.id, asset?.asset_class === "crypto" ? null : asset?.current_value, eligible[0]?.id]);
 
   if (!asset || !form) return null;
   const isCrypto = asset.asset_class === "crypto";
@@ -88,7 +88,7 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
         <p className="text-xs text-text-muted">{ru ? "Связанную покупку/продажу криптовалюты можно записать только сегодняшней датой. Цена за монету — в валюте актива." : "Linked crypto trades can currently be recorded only for today. Unit price uses the asset currency."}</p>
         <div><Label htmlFor="movement-quantity">{ru ? "Количество монет" : "Coin quantity"}</Label><Input id="movement-quantity" type="number" min="0.000000000000000001" step="any" required value={form.quantity ?? ""} onChange={(e) => setForm({ ...form, quantity: e.target.value || null })} /></div>
         <div><Label htmlFor="movement-price">{ru ? "Цена одной монеты" : "Unit price"} · {asset.currency}</Label><Input id="movement-price" type="number" min="0.000000000000000001" step="any" required value={form.price_per_unit ?? ""} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value || null })} /></div>
-      </> : <div><Label htmlFor="movement-value">{ru ? "Стоимость актива после операции" : "Asset value after trade"} · {asset.currency}</Label><Input id="movement-value" type="number" min="0" step="0.01" required value={form.asset_value_after ?? ""} onChange={(e) => setForm({ ...form, asset_value_after: e.target.value })} /></div>}
+      </> : <><p className="text-xs text-text-muted">{ru ? "Для одного актива доступна одна связанная операция в день. Изменить её можно ниже." : "One linked trade per asset per day. You can edit it below."}</p><div><Label htmlFor="movement-value">{ru ? "Стоимость актива после операции" : "Asset value after trade"} · {asset.currency}</Label><Input id="movement-value" type="number" min="0" step="0.01" required value={form.asset_value_after ?? ""} onChange={(e) => setForm({ ...form, asset_value_after: e.target.value })} /></div></>}
       <div><Label htmlFor="movement-date">{ru ? "Дата" : "Date"}</Label><Input id="movement-date" type="date" required disabled={Boolean(editing)} max={isCrypto ? today() : undefined} min={isCrypto ? today() : undefined} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
       <div><Label htmlFor="movement-note">{ru ? "Примечание" : "Note"}</Label><Input id="movement-note" value={form.note ?? ""} onChange={(e) => setForm({ ...form, note: e.target.value || null })} /></div>
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
