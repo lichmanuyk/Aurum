@@ -43,3 +43,8 @@ class AppSettings(Base):
     dashboard_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
     net_worth_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
     crypto_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
+    # Cash Flow and Reports each get their own override too — added
+    # separately from the three above (docs/tasks/cash-flow-reports-display-currency.md)
+    # since they didn't exist yet when those were introduced.
+    cash_flow_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)
+    reports_currency: Mapped[str | None] = mapped_column(String(3), nullable=True, default=None)

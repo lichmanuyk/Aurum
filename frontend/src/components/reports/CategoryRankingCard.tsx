@@ -3,7 +3,7 @@ import { SquareDivide } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
-import { formatCurrency } from "@/lib/format";
+import { useSectionFormat } from "@/lib/displayCurrency";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategoryRankingItem } from "@/types";
@@ -22,6 +22,7 @@ interface CategoryRankingCardProps {
  * into that category in the detail chart/transaction list below. */
 export function CategoryRankingCard({ items, isLoading, selectedCategoryId, onSelectCategory }: CategoryRankingCardProps) {
   const { t } = useTranslation();
+  const { formatCurrency } = useSectionFormat();
   // The subcategory breakdown lives in a modal, not expanded inline — a
   // category with many subcategories would otherwise push the whole ranking
   // list taller and shift every row below it.

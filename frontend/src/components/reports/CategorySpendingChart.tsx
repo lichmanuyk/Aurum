@@ -1,6 +1,7 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatCurrency, getIntlLocale, pluralizeRu } from "@/lib/format";
+import { useSectionFormat } from "@/lib/displayCurrency";
+import { getIntlLocale, pluralizeRu } from "@/lib/format";
 import { useTranslation, type Language } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { CategorySpendingReport } from "@/types";
@@ -40,7 +41,11 @@ function computeYearTicks(keys: string[]): string[] {
   return ticks;
 }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { key: string; amount: number } }> }) {
+function ChartTooltip({ active, payload, formatCurrency }: {
+  active?: boolean;
+  payload?: Array<{ payload: { key: string; amount: number } }>;
+  formatCurrency: (amount: number | string) => string;
+}) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
@@ -53,6 +58,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Array<{
 
 export function CategorySpendingChart({ report, isLoading }: CategorySpendingChartProps) {
   const { t, language } = useTranslation();
+  const { formatCurrency } = useSectionFormat();
   const chartData = report?.series.map((point) => ({
     key: monthKey(point.year, point.month),
     amount: Number(point.amount),
@@ -96,7 +102,7 @@ export function CategorySpendingChart({ report, isLoading }: CategorySpendingCha
                     interval="preserveStartEnd"
                   />
                 )}
-                <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--surface-2)" }} />
+                <Tooltip content={<ChartTooltip formatCurrency={formatCurrency} />} cursor={{ fill: "var(--surface-2)" }} />
                 <Bar dataKey="amount" fill={report.category_color} radius={[2, 2, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>

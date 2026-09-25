@@ -27,12 +27,12 @@ class RestoreCheckTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
                     check_backup_restore.latest_backup(now)
 
-    def test_latest_backup_accepts_current_v8_format(self):
+    def test_latest_backup_accepts_current_v9_format(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             now = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)
             path = root / now.strftime('aurum-auto-%Y%m%dT%H%M%S%fZ.json')
-            raw = json.dumps({'aurum_backup_version': 8, 'accounts': [{}], 'transactions': [{}]}).encode()
+            raw = json.dumps({'aurum_backup_version': 9, 'accounts': [{}], 'transactions': [{}]}).encode()
             path.write_bytes(raw)
             path.with_suffix('.sha256').write_text(hashlib.sha256(raw).hexdigest() + '  ' + path.name)
             with patch.object(check_backup_restore, 'BACKUPS', root):
@@ -59,7 +59,7 @@ class RestoreCheckTests(unittest.TestCase):
         restored = {**original, 'exported_at': 'b', 'aurum_backup_version': 8,
                     'app_settings': {'currency': 'USD', 'summary_currency': None,
                                       'dashboard_currency': None, 'net_worth_currency': None,
-                                      'crypto_currency': None}}
+                                      'crypto_currency': None, 'cash_flow_currency': None, 'reports_currency': None}}
         check_backup_restore.compare(original, restored)
         # A genuine difference in a display-currency field must still fail.
         restored_with_drift = {**restored, 'app_settings': {**restored['app_settings'], 'summary_currency': 'USD'}}
@@ -76,6 +76,34 @@ class RestoreCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'app_settings'):
             check_backup_restore.compare(original, {**original,
                 'app_settings': {**original['app_settings'], 'summary_currency': 'USD'}})
+
+    def test_compare_backfills_cash_flow_reports_currency_defaults_for_pre_v9_backups(self):
+        # Same idea as the pre-v8 case above, one version later: a v8 backup
+        # has the four earlier display-currency fields but not Cash Flow/
+        # Reports' own two — restoring it into a v9-capable app must not
+        # report a false mismatch for that alone.
+        original = {'exported_at': 'a', 'aurum_backup_version': 8,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
+                    'app_settings': {'currency': 'USD', 'summary_currency': 'EUR',
+                                      'dashboard_currency': None, 'net_worth_currency': 'PLN',
+                                      'crypto_currency': None}}
+        restored = {**original, 'exported_at': 'b', 'aurum_backup_version': 9,
+                    'app_settings': {**original['app_settings'], 'cash_flow_currency': None, 'reports_currency': None}}
+        check_backup_restore.compare(original, restored)
+        restored_with_drift = {**restored, 'app_settings': {**restored['app_settings'], 'cash_flow_currency': 'PLN'}}
+        with self.assertRaisesRegex(RuntimeError, 'app_settings'):
+            check_backup_restore.compare(original, restored_with_drift)
+
+    def test_compare_still_matches_v9_backups_verbatim(self):
+        original = {'exported_at': 'a', 'aurum_backup_version': 9,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
+                    'app_settings': {'currency': 'USD', 'summary_currency': 'EUR',
+                                      'dashboard_currency': None, 'net_worth_currency': 'PLN',
+                                      'crypto_currency': None, 'cash_flow_currency': 'EUR', 'reports_currency': None}}
+        check_backup_restore.compare(original, {**original, 'exported_at': 'b'})
+        with self.assertRaisesRegex(RuntimeError, 'app_settings'):
+            check_backup_restore.compare(original, {**original,
+                'app_settings': {**original['app_settings'], 'reports_currency': 'USD'}})
 
 
 if __name__ == '__main__':

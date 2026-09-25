@@ -241,6 +241,10 @@ class AppSettingsBackup(BaseModel):
     dashboard_currency: str | None = None
     net_worth_currency: str | None = None
     crypto_currency: str | None = None
+    # Defaulted to None for the same reason as the four fields above — a
+    # backup exported before Cash Flow/Reports had their own overrides.
+    cash_flow_currency: str | None = None
+    reports_currency: str | None = None
 
 
 class BackupPayload(BaseModel):

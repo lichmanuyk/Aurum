@@ -20,7 +20,10 @@ export function DisplayCurrencyCard() {
   const generalValue = settings?.summary_currency
     ?? (primary && CHOICES.includes(primary as DisplayCurrency) ? (primary as DisplayCurrency) : "PLN");
 
-  function overrideField(field: "dashboard_currency" | "net_worth_currency" | "crypto_currency", label: string, id: string) {
+  function overrideField(
+    field: "dashboard_currency" | "net_worth_currency" | "crypto_currency" | "cash_flow_currency" | "reports_currency",
+    label: string, id: string
+  ) {
     const value = settings?.[field] ?? "";
     return (
       <div>
@@ -44,7 +47,7 @@ export function DisplayCurrencyCard() {
         <CardTitle>{t("settings.displayCurrency")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <Label htmlFor="summary-currency">{t("settings.displayCurrencyGeneralLabel")}</Label>
             <Select
@@ -59,6 +62,8 @@ export function DisplayCurrencyCard() {
           {overrideField("dashboard_currency", t("settings.dashboardCurrencyLabel"), "dashboard-currency")}
           {overrideField("net_worth_currency", t("settings.netWorthCurrencyLabel"), "net-worth-currency")}
           {overrideField("crypto_currency", t("settings.cryptoCurrencyLabel"), "crypto-currency")}
+          {overrideField("cash_flow_currency", t("nav.cashFlow"), "cash-flow-currency")}
+          {overrideField("reports_currency", t("nav.reports"), "reports-currency")}
         </div>
         <p className="text-xs text-text-muted">{t("settings.displayCurrencyHint")}</p>
       </CardContent>

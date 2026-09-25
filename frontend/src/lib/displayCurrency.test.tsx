@@ -34,6 +34,8 @@ function baseSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     dashboard_currency: null,
     net_worth_currency: null,
     crypto_currency: null,
+    cash_flow_currency: null,
+    reports_currency: null,
     app_version: "test",
     ...overrides,
   };
@@ -113,6 +115,14 @@ it("resolveConfiguredCurrency follows override > summary_currency > primary", ()
   expect(resolveConfiguredCurrency(
     baseSettings({ summary_currency: "USD", crypto_currency: "EUR" }), "PLN", "netWorth"
   )).toBe("USD");
+  // Cash Flow/Reports follow the exact same rule.
+  expect(resolveConfiguredCurrency(baseSettings({ summary_currency: "USD" }), "PLN", "cashFlow")).toBe("USD");
+  expect(resolveConfiguredCurrency(
+    baseSettings({ summary_currency: "USD", reports_currency: "EUR" }), "PLN", "reports"
+  )).toBe("EUR");
+  expect(resolveConfiguredCurrency(
+    baseSettings({ summary_currency: "USD", cash_flow_currency: "EUR" }), "PLN", "reports"
+  )).toBe("USD");
 });
 
 interface Probe { currency: string; action: ReturnType<typeof useDisplayCurrencyAction>; }
@@ -178,6 +188,20 @@ it("shows no header action when the configured currency already matches primary"
   const { latest } = renderAt("/net-worth", baseSettings({ summary_currency: "PLN" }));
   await flush();
   expect(latest.action).toBeNull();
+});
+
+it("Cash Flow inherits summary_currency", async () => {
+  const { latest } = renderAt("/cash-flow", baseSettings({ summary_currency: "USD", reports_currency: "EUR" }));
+  await flush();
+  expect(latest.currency).toBe("USD");
+  expect(latest.action?.configuredCurrency).toBe("USD");
+});
+
+it("Reports uses its own override, independent of Cash Flow's inherited value", async () => {
+  const { latest } = renderAt("/reports", baseSettings({ summary_currency: "USD", reports_currency: "EUR" }));
+  await flush();
+  expect(latest.currency).toBe("EUR");
+  expect(latest.action?.configuredCurrency).toBe("EUR");
 });
 
 it("migrates the legacy localStorage choice once, only when the server has no explicit choice yet", async () => {

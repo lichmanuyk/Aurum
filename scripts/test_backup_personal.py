@@ -12,7 +12,7 @@ import backup_personal
 
 class BackupFormatTests(unittest.TestCase):
     def test_old_and_current_versions_are_saved_but_unknown_version_is_rejected(self):
-        for version in (4, 5, 6, 7, 8, 999):
+        for version in (4, 5, 6, 7, 8, 9, 999):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 config = root / 'personal.env'
