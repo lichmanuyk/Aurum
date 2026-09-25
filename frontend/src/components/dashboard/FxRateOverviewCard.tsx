@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
+import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatMoney } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -25,12 +26,30 @@ interface FxOverviewResponse {
  * already-saved reference rates; opening this card never calls NBP. */
 export function FxRateOverviewCard() {
   const { t } = useTranslation();
-  const { data } = useQuery({
+  const query = useQuery({
     queryKey: ["fx-rate-overview"],
     queryFn: () => api.get<FxOverviewResponse>("/fx-rates/overview"),
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 
+  if (query.isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("fxOverview.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <p role="alert" className="text-sm text-danger">{t("fxOverview.loadError")}</p>
+          <Button variant="secondary" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            {query.isFetching ? t("quotes.updating") : t("quotes.retry")}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = query.data;
   if (!data || data.items.length === 0) return null;
 
   return (

@@ -73,6 +73,30 @@ async def test_plan_includes_archived_and_pre_history_window(client,account_id):
     assert not coverage['complete'] and next(i for i in coverage['items'] if i['currency']=='BYN')['missing_days']>0
 
 
+async def test_plan_and_coverage_never_demand_byn_rub_history_without_real_usage(client, account_id):
+    """The Dashboard's rate-overview card (see
+    docs/tasks/fx-rate-overview.md) wants BYN/RUB over a short recent
+    window regardless of accounts — but the full-history plan/coverage
+    check must not be told they're needed for years back just because of
+    that card, when nothing in the ledger actually uses either."""
+    await client.post('/transactions', json={'account_id': account_id, 'type': 'income', 'amount': '1', 'date': '2025-01-02', 'description': 'Synthetic'})
+    plan = (await client.get('/fx-rates/nbp/plan')).json()
+    assert 'BYN' not in plan['currencies'] and 'RUB' not in plan['currencies']
+    coverage = (await client.get('/fx-rates/coverage')).json()
+    assert not any(item['currency'] in ('BYN', 'RUB') for item in coverage['items'])
+
+
+async def test_nbp_latest_still_refreshes_byn_and_rub_with_no_account_in_either(client, monkeypatch):
+    captured = {}
+    async def fetch(currencies, start, end):
+        captured['currencies'] = set(currencies)
+        return []
+    monkeypatch.setattr(nbp_service, 'fetch_rates', fetch)
+    response = await client.post('/fx-rates/nbp/latest')
+    assert response.status_code == 200, response.text
+    assert {'BYN', 'RUB'} <= captured['currencies']
+
+
 async def test_nbp_http_404_is_missing_and_mid_parses_without_binary_float(monkeypatch):
     real=httpx.AsyncClient
     async def handler(request):

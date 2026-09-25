@@ -61,6 +61,39 @@ it("shows an older publication date for a weekly-published currency without trea
   expect(container.textContent).not.toContain("нет курса");
 });
 
+it('shows a clear "failed to load" state with a retry action instead of disappearing, and never fabricates values', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response("Service unavailable", { status: 503 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      reporting_currency: "PLN", as_of: "2026-09-25",
+      items: [{ currency: "USD", rate: "4.1000", rate_date: "2026-09-25", source: "NBP" }],
+    }), { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const queryClient = new QueryClient();
+  act(() => { root.render(<QueryClientProvider client={queryClient}><FxRateOverviewCard /></QueryClientProvider>); });
+  for (let i = 0; i < 10; i++) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить курсы");
+  // Never shows a fabricated rate while the request is failing.
+  expect(container.textContent).not.toContain("USD");
+
+  const retryButton = container.querySelector("button");
+  expect(retryButton).not.toBeNull();
+  await act(async () => { retryButton!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  for (let i = 0; i < 10; i++) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  }
+
+  expect(container.textContent).toContain("USD");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
 it("renders nothing while there is no data yet, rather than a misleading empty card", async () => {
   vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   container = document.createElement("div");

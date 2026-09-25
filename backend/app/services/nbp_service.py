@@ -23,14 +23,23 @@ NBP_URL = 'https://api.nbp.pl/api/exchangerates/tables'
 # from B and reported as absent if NBP did not publish them in that interval.
 TABLE_A = set('THB USD AUD HKD CAD NZD SGD EUR HUF CHF GBP UAH JPY CZK DKK ISK NOK SEK HRK RON BGN TRY ILS CLP PHP MXN ZAR BRL MYR IDR INR KRW CNY XDR'.split())
 
+# The Dashboard's compact rate overview (see docs/tasks/fx-rate-overview.md)
+# always wants BYN/RUB over a short recent window, regardless of whether the
+# user holds any account/transaction in them — but only /fx-rates/nbp/latest
+# should fetch that window for them (see its route in api/routes/fx.py).
+# They must NOT be part of import_plan()'s own `currencies`: that plan also
+# feeds /fx-rates/coverage and the full-history NBP import, and unlike
+# EUR/USD (already unconditional below, for the summary display choices)
+# there's no real ledger data ever needing BYN/RUB history — adding them
+# there would falsely demand years of history for a currency the user may
+# never actually use for accounting.
+OVERVIEW_ONLY_CURRENCIES = frozenset({"BYN", "RUB"})
+
 
 async def import_plan(session):
     settings = await get_or_create_app_settings(session)
-    # Include the summary display choices even without native EUR/USD
-    # accounts, and BYN/RUB for the Dashboard's compact rate overview (see
-    # docs/tasks/fx-rate-overview.md) — that card always shows these four,
-    # regardless of whether the user holds an account in any of them.
-    currencies = {settings.currency, settings.idle_cash_threshold_currency, "EUR", "USD", "BYN", "RUB"}
+    # Include the summary display choices even without native EUR/USD accounts.
+    currencies = {settings.currency, settings.idle_cash_threshold_currency, "EUR", "USD"}
     for model, field in [(Account, Account.currency), (Asset, Asset.currency), (Budget, Budget.currency),
                          (Goal, Goal.currency), (Transaction, Transaction.reporting_currency_override),
                          (CryptoTransaction, CryptoTransaction.quote_currency)]:

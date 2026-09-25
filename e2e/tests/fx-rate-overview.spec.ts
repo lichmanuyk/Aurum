@@ -120,4 +120,34 @@ test.describe('Dashboard FX rate overview', () => {
       expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
     }
   });
+
+  test('shows a clear failed-to-load state with a working retry, never a fabricated rate', async ({ page, request }) => {
+    const snapshot = await (await request.get('/api/backup/export')).json();
+    try {
+      let calls = 0;
+      await page.route('**/api/fx-rates/overview', (route) => {
+        calls += 1;
+        if (calls === 1) return route.fulfill({ status: 503, body: 'Synthetic outage' });
+        return route.continue();
+      });
+      expect((await request.patch('/api/settings', { data: { currency: 'PLN' } })).ok()).toBeTruthy();
+      const today = new Date().toISOString().slice(0, 10);
+      await nbpRate(request, 'USD', today, '4.1000', 'A');
+
+      await page.goto('/');
+      const card = page.locator('div.rounded-xl').filter({ has: page.getByRole('heading', { name: /Курсы валют|Currency rates/ }) });
+      const alert = card.getByRole('alert');
+      await expect(alert).toContainText(/Не удалось загрузить курсы|Couldn't load exchange rates/);
+      // Never a guessed/fabricated rate while the request is failing.
+      await expect(card.getByText('USD')).toHaveCount(0);
+
+      await card.getByRole('button', { name: /Повторить|Retry/ }).click();
+      await expect(alert).toHaveCount(0);
+      await expect(card.getByText('USD')).toBeVisible();
+      expect(calls).toBe(2);
+    } finally {
+      const restore = await request.post('/api/backup/import', { data: snapshot });
+      expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+    }
+  });
 });
