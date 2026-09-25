@@ -45,6 +45,7 @@ dist/
 .idea/
 .vscode/
 .claude/
+.deploy/
 
 # Postgres local volume (if bind-mounted during development)
 pgdata/
