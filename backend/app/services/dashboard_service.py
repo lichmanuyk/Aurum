@@ -31,7 +31,7 @@ async def get_dashboard_summary(session: AsyncSession, year: int, month: int) ->
     fx = await FXConverter.load(session)
     totals = {}
     for tx in await transactions_for_reporting(session, start, end):
-        if tx.type == TransactionType.ADJUSTMENT:
+        if tx.type not in (TransactionType.INCOME, TransactionType.EXPENSE, TransactionType.TRANSFER):
             continue
         totals[tx.type] = totals.get(tx.type, Decimal(0)) + fx.transaction(tx)
 

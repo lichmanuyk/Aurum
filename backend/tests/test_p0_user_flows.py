@@ -49,7 +49,7 @@ async def test_mixed_backup_restores_balances_reports_and_capital(client, catego
     assert Decimal(before[4]["total_amount"]) == 120
 
     backup = (await client.get("/backup/export")).json()
-    assert backup["aurum_backup_version"] == 4
+    assert backup["aurum_backup_version"] == 5
     assert len(backup["transactions"]) == 3 and len(backup["crypto_transactions"]) == 1
     async def assert_same_data():
         exported = (await client.get("/backup/export")).json()

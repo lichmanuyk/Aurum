@@ -58,6 +58,13 @@ class TransactionBackup(BaseModel):
     reporting_amount_override: Decimal | None = None
     reporting_currency_override: str | None = None
     reporting_override_source: str | None = None
+    asset_id: int | None = None
+    crypto_transaction_id: int | None = None
+    asset_valuation_id: int | None = None
+    gross_amount: Decimal | None = None
+    fee_amount: Decimal | None = None
+    prior_asset_value: Decimal | None = None
+    idempotency_key: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

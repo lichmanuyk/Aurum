@@ -51,7 +51,7 @@ async def validate_transaction(session, fields, *, template=False):
 
 
 def native_legs(tx):
-    yield tx.account_id, tx.amount if tx.type in (TransactionType.INCOME, TransactionType.ADJUSTMENT) else -tx.amount
+    yield tx.account_id, tx.amount if tx.type in (TransactionType.INCOME, TransactionType.ADJUSTMENT, TransactionType.ASSET_SELL) else -tx.amount
     if tx.type == TransactionType.TRANSFER and tx.transfer_account_id is not None:
         if tx.destination_amount is None:
             raise HTTPException(409, detail={"code": "TRANSFER_AMOUNT_UNRESOLVED", "transaction_id": tx.id})

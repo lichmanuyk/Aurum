@@ -110,9 +110,9 @@ async def _cash_cumulative_events(session: AsyncSession) -> list[tuple[date_, De
 
     delta_by_date: dict[date_, Decimal] = defaultdict(Decimal)
     for tx_date, tx_type, amount, account_id, transfer_account_id in txns_result.all():
-        if tx_type == TransactionType.INCOME and account_id in cash_account_ids:
+        if tx_type in (TransactionType.INCOME, TransactionType.ASSET_SELL) and account_id in cash_account_ids:
             delta_by_date[tx_date] += amount
-        elif tx_type == TransactionType.EXPENSE and account_id in cash_account_ids:
+        elif tx_type in (TransactionType.EXPENSE, TransactionType.ASSET_BUY) and account_id in cash_account_ids:
             delta_by_date[tx_date] -= amount
         elif tx_type == TransactionType.TRANSFER:
             if account_id in cash_account_ids:

@@ -112,6 +112,8 @@ class TransactionBase(TransactionFields):
 
     @model_validator(mode="after")
     def _validate_type_specific_fields(self) -> "TransactionBase":
+        if self.type in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL):
+            raise ValueError("Use the asset movement route for purchases and sales")
         violation = adjustment_rule_violation(self.type, self.amount, self.adjustment_reason, self.category_id) or transfer_rule_violation(
             type=self.type,
             account_id=self.account_id,
@@ -196,6 +198,7 @@ class TransactionRead(TransactionFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    asset_id: int | None = None
     transfer_account: AccountRead | None = None
     account: AccountRead
     category: CategoryRead | None = None

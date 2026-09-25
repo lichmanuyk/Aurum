@@ -1,6 +1,6 @@
 export type AccountType = "checking" | "debit_card" | "savings" | "credit_card" | "cash" | "investment" | "other";
 export type CategoryKind = "income" | "expense";
-export type TransactionType = "income" | "expense" | "transfer" | "adjustment";
+export type TransactionType = "income" | "expense" | "transfer" | "adjustment" | "asset_buy" | "asset_sell";
 export type AdjustmentReason = "opening_balance" | "reconciliation" | "migration";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 
@@ -84,6 +84,7 @@ export interface TransactionSplitInput {
 }
 
 export interface Transaction {
+  asset_id?: number | null;
   adjustment_reason?: AdjustmentReason | null;
   destination_amount?: string | null;
   reporting_amount_override?: string | null;
@@ -252,6 +253,29 @@ export interface AssetUpdateInput {
 export interface AssetValuationInput {
   value: string;
   as_of_date: string;
+}
+
+export interface AssetMovementInput {
+  asset_id: number;
+  account_id: number;
+  type: "buy" | "sell";
+  gross_amount: string;
+  fee_amount: string;
+  asset_value_after: string | null;
+  quantity: string | null;
+  price_per_unit: string | null;
+  date: string;
+  note: string | null;
+  idempotency_key: string;
+}
+
+export interface AssetMovement extends AssetMovementInput {
+  id: number;
+  asset_name: string;
+  account_name: string;
+  account_currency: string;
+  asset_currency: string;
+  cash_amount: string;
 }
 
 export interface NetWorthPoint {
@@ -527,6 +551,7 @@ export interface CryptoHoldingUpdateInput {
 }
 
 export interface CryptoTransaction {
+  cash_movement_id?: number | null;
   quote_currency?: string | null;
   id: number;
   asset_id: number;
