@@ -100,6 +100,9 @@ def main():
         except BlockingIOError:
             print('Another personal deployment is running', flush=True)
             return
+        # Keep the lock private, but let Git check out readable source files.
+        # The backup script sets its own 077 umask for financial data.
+        os.umask(0o022)
         deploy(args.force)
 
 
