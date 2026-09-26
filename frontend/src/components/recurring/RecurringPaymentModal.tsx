@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
-import { usePostRecurring } from "@/hooks/useRecurring";
+import { useInvalidateRecurring, usePostRecurring } from "@/hooks/useRecurring";
 import { useTranslation } from "@/lib/i18n";
 import type { RecurringTransaction } from "@/types";
 
@@ -25,13 +24,17 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
   const { t } = useTranslation();
   const { data: accounts } = useAccounts();
   const postRecurring = usePostRecurring();
-  const cache = useQueryClient();
+  const invalidateRecurring = useInvalidateRecurring();
 
   const [accountId, setAccountId] = useState("");
   const [amount, setAmount] = useState("");
   const [currencyChanged, setCurrencyChanged] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [alreadyPosted, setAlreadyPosted] = useState(false);
+  // Retrying is pointless once the server has told us *why* — either the
+  // payment already went through (a lost response) or the template can't
+  // be posted right now at all — so further submission stays blocked
+  // until the user closes and reopens on fresh data.
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     if (!open || !recurring) return;
@@ -39,7 +42,7 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
     setAmount(recurring.amount);
     setCurrencyChanged(false);
     setError(null);
-    setAlreadyPosted(false);
+    setBlocked(false);
   }, [open, recurring]);
 
   if (!recurring) return null;
@@ -65,7 +68,7 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (postRecurring.isPending || alreadyPosted) return;
+    if (postRecurring.isPending || blocked) return;
     setError(null);
 
     if (!accountId) {
@@ -82,9 +85,21 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
       onClose();
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
-        setAlreadyPosted(true);
-        setError(t("recurring.payment.alreadyPosted"));
-        await cache.invalidateQueries({ queryKey: ["recurring"] });
+        setBlocked(true);
+        if (caught.code === "ALREADY_POSTED") {
+          // The response to an earlier, actually-successful submit was
+          // lost and this is the retry — a real Transaction exists that
+          // the client doesn't know about yet, so balances/reports need
+          // the full refresh, not just the template list.
+          setError(t("recurring.payment.alreadyPosted"));
+          await invalidateRecurring(true);
+        } else {
+          // TEMPLATE_INACTIVE / TEMPLATE_NOT_DUE — nothing was posted by
+          // this attempt, so there's nothing to reconcile beyond the
+          // template's own (possibly now-stale) due/active state.
+          setError(t("recurring.payment.notDue"));
+          await invalidateRecurring(false);
+        }
       } else {
         setError(t("recurring.payment.saveError"));
       }
@@ -142,7 +157,7 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
           <Button type="button" variant="ghost" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button type="submit" disabled={postRecurring.isPending || alreadyPosted}>
+          <Button type="submit" disabled={postRecurring.isPending || blocked}>
             {postRecurring.isPending ? t("recurring.payment.confirming") : t("recurring.payment.confirm")}
           </Button>
         </div>

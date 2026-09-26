@@ -169,8 +169,21 @@ async def post_recurring(session: AsyncSession, recurring_id: int, payload: Recu
     # Serialize competing clicks before checking the committed posting date.
     recurring = await _get_or_404(session, recurring_id, lock=True)
     today = date_.today()
-    if not recurring.is_active or _next_due_date(recurring) > today or recurring.last_posted_date == today:
-        raise HTTPException(409, "Template is inactive or not due yet")
+    # Three different reasons a POST can't proceed right now, each its own
+    # code (see docs/tasks/recurring-variable-payments.md). Checked in this
+    # order deliberately: once `last_posted_date == today`, `_next_due_date`
+    # is *always* already past today too (it advances from that same
+    # date), so ALREADY_POSTED must be checked before TEMPLATE_NOT_DUE or
+    # it would never be reached — exactly the "lost the response to an
+    # actually-successful post, retried" case the client most needs to
+    # tell apart, since only this one means something new actually
+    # happened server-side for it to reconcile.
+    if recurring.last_posted_date == today:
+        raise HTTPException(409, detail={"code": "ALREADY_POSTED"})
+    if not recurring.is_active:
+        raise HTTPException(409, detail={"code": "TEMPLATE_INACTIVE"})
+    if _next_due_date(recurring) > today:
+        raise HTTPException(409, detail={"code": "TEMPLATE_NOT_DUE"})
 
     fields_set = payload.model_fields_set if payload else set()
     destination_amount = payload.destination_amount if payload else None

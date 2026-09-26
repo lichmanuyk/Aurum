@@ -3,7 +3,7 @@ docs/tasks/recurring-variable-payments.md) — the template's own stored
 amount/account never change, only what gets posted this one time.
 """
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -136,3 +136,39 @@ async def test_concurrent_overridden_posts_create_exactly_one_transaction_and_on
     assert rows["total"] == 1 and Decimal(rows["items"][0]["amount"]) == Decimal("77.00")
     assert Decimal((await client.get("/accounts")).json()[0]["balance"]) == Decimal("-77.00")
     assert (await client.get("/recurring")).json()[0]["last_posted_date"] == str(date.today())
+
+
+async def test_409_carries_a_distinct_code_for_each_of_its_three_causes(client, account_id):
+    # A lost-response retry (ALREADY_POSTED) is the one case where the
+    # client needs to reconcile balances/reports — the other two never
+    # posted anything, so the client must be able to tell them apart
+    # (see docs/tasks/recurring-variable-payments.md).
+    posted = await template(client, account_id)
+    assert (await client.post(f"/recurring/{posted['id']}/post")).status_code == 201
+    already_posted = await client.post(f"/recurring/{posted['id']}/post")
+    assert already_posted.status_code == 409
+    assert already_posted.json()["detail"]["code"] == "ALREADY_POSTED"
+
+    tomorrow = str(date.today() + timedelta(days=1))
+    not_due = await template(client, account_id, anchor_date=tomorrow, description="Synthetic not due yet")
+    not_due_response = await client.post(f"/recurring/{not_due['id']}/post")
+    assert not_due_response.status_code == 409
+    assert not_due_response.json()["detail"]["code"] == "TEMPLATE_NOT_DUE"
+
+    inactive = await template(client, account_id, description="Synthetic inactive")
+    assert (await client.patch(f"/recurring/{inactive['id']}", json={"is_active": False})).status_code == 200
+    inactive_response = await client.post(f"/recurring/{inactive['id']}/post")
+    assert inactive_response.status_code == 409
+    assert inactive_response.json()["detail"]["code"] == "TEMPLATE_INACTIVE"
+
+
+async def test_already_posted_takes_priority_over_inactive_when_both_are_true(client, account_id):
+    # A template deactivated right after being posted today is *both*
+    # inactive and already posted — ALREADY_POSTED must still win, since
+    # that's the one fact the client actually needs to act on.
+    t = await template(client, account_id)
+    assert (await client.post(f"/recurring/{t['id']}/post")).status_code == 201
+    assert (await client.patch(f"/recurring/{t['id']}", json={"is_active": False})).status_code == 200
+    response = await client.post(f"/recurring/{t['id']}/post")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "ALREADY_POSTED"

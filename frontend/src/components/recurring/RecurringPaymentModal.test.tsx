@@ -150,10 +150,25 @@ it("disables the confirm button while a submission is pending and never double-p
   await settle();
 });
 
-it("shows a clear \"already posted\" message on a 409 instead of the generic validation error", async () => {
-  const post = vi.fn().mockResolvedValue(new Response("Conflict", { status: 409 }));
-  stubFetch(post);
+function conflict(code: string) {
+  return vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: { code } }), { status: 409 }));
+}
+
+it('shows a clear "already posted" message for an ALREADY_POSTED 409 and refreshes balances/reports, not just the template', async () => {
+  const post = conflict("ALREADY_POSTED");
+  let accountsFetches = 0;
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes("/accounts")) {
+      accountsFetches += 1;
+      return Promise.resolve(new Response(JSON.stringify(ACCOUNTS), { status: 200 }));
+    }
+    if (url.includes("/recurring") && init?.method === "POST") {
+      return Promise.resolve(post(init.body ? JSON.parse(init.body as string) : {}));
+    }
+    return Promise.resolve(new Response("[]", { status: 200 }));
+  }));
   await mount();
+  const fetchesBeforeSubmit = accountsFetches;
 
   await act(async () => { submit(); });
   await settle();
@@ -161,4 +176,40 @@ it("shows a clear \"already posted\" message on a 409 instead of the generic val
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("уже проведён");
   // Retrying a request that's already conflicted is pointless — confirm stays disabled.
   expect(confirmButton().disabled).toBe(true);
+  // A lost-but-successful response means a real Transaction exists that
+  // this client doesn't know about — accounts (and everything else the
+  // template's own onSuccess would refresh) must be pulled in too, not
+  // just the recurring list.
+  expect(accountsFetches).toBeGreaterThan(fetchesBeforeSubmit);
 });
+
+it.each(["TEMPLATE_NOT_DUE", "TEMPLATE_INACTIVE"])(
+  "shows a distinct, non-\"already posted\" message for a %s 409 and does not refetch balances/reports",
+  async (code) => {
+    const post = conflict(code);
+    let accountsFetches = 0;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/accounts")) {
+        accountsFetches += 1;
+        return Promise.resolve(new Response(JSON.stringify(ACCOUNTS), { status: 200 }));
+      }
+      if (url.includes("/recurring") && init?.method === "POST") {
+        return Promise.resolve(post(init.body ? JSON.parse(init.body as string) : {}));
+      }
+      return Promise.resolve(new Response("[]", { status: 200 }));
+    }));
+    await mount();
+    const fetchesBeforeSubmit = accountsFetches;
+
+    await act(async () => { submit(); });
+    await settle();
+
+    const alertText = container.querySelector('[role="alert"]')?.textContent;
+    expect(alertText).not.toContain("уже проведён");
+    expect(alertText).toContain("Шаблон отключён или срок ещё не наступил");
+    expect(confirmButton().disabled).toBe(true);
+    // Nothing was actually posted by this attempt — no reason to refresh
+    // balances/transactions/reports, only the (possibly now-stale) template.
+    expect(accountsFetches).toBe(fetchesBeforeSubmit);
+  },
+);

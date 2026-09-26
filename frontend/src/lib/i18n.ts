@@ -515,6 +515,7 @@ const ru = {
   "recurring.payment.confirming": "Проведение…",
   "recurring.payment.saveError": "Не удалось провести платёж. Проверьте сумму и счёт.",
   "recurring.payment.alreadyPosted": "Этот платёж уже проведён — список обновлён.",
+  "recurring.payment.notDue": "Шаблон отключён или срок ещё не наступил — список обновлён.",
 
   "account.empty": "Счетов пока нет. Добавьте первый — например, текущий счёт или наличные.",
   "account.showArchived": "Показывать архивные",
@@ -1115,6 +1116,7 @@ const en: Record<keyof typeof ru, string> = {
   "recurring.payment.confirming": "Posting…",
   "recurring.payment.saveError": "Couldn't record the payment. Check the amount and account.",
   "recurring.payment.alreadyPosted": "This payment was already recorded — the list is up to date.",
+  "recurring.payment.notDue": "The template is inactive or not due yet — the list is up to date.",
 
   "account.empty": "No accounts yet. Add your first one — a checking account or cash, for example.",
   "account.showArchived": "Show archived",

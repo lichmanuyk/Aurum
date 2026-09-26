@@ -4,9 +4,14 @@ const API_BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // The backend's own structured `detail.code` (e.g. "ALREADY_POSTED"),
+  // when the error body carried one — lets callers branch on the actual
+  // reason instead of parsing the human-readable `message` string.
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -30,11 +35,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
     let message = body || response.statusText;
+    let code: string | undefined;
     try {
       const parsed = JSON.parse(body) as { detail?: unknown };
       if (typeof parsed.detail === "string") message = parsed.detail;
       else if (parsed.detail && typeof parsed.detail === "object" && "code" in parsed.detail) {
         const d = parsed.detail as Record<string, string>;
+        code = d.code;
         message = d.code === "FX_RATE_MISSING"
           ? `FX: ${d.base_currency} → ${d.quote_currency}, ${d.date}. Добавьте исторический курс в настройках / Add a historical rate in Settings.`
           : `${d.code}: ${d.transaction_id ?? ""}`;
@@ -42,7 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // body wasn't JSON — fall back to the raw text set above
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, code);
   }
 
   if (response.status === 204) {
