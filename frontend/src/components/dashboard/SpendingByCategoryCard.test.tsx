@@ -116,3 +116,10 @@ it("a click pins the highlight and Escape un-pins it", () => {
   flushSync(() => rowA.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(rowA.getAttribute("aria-pressed")).toBe("false");
 });
+
+// The "two same-colored categories get different sector fills at rest"
+// requirement (see buildColorPatterns in @/lib/colorPatterns, covered by its
+// own colorPatterns.test.ts) is verified end to end in a real browser
+// instead of here — jsdom's ResponsiveContainer reports a 0×0 box, so
+// Recharts never actually renders any <Pie> sectors in this environment to
+// begin with (see donut-chart-interaction.spec.ts's first test).

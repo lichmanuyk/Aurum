@@ -6,8 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
 import { liveId, useChartSelection } from "@/lib/chartSelection";
-import { sectorMidpointFraction, useSectorConnectorLine } from "@/lib/sectorConnector";
+import { buildColorPatterns } from "@/lib/colorPatterns";
+import { sectorMidAngleDeg, useSectorConnectorLine } from "@/lib/sectorConnector";
 import { cn } from "@/lib/utils";
+
+// Also the `paddingAngle` passed to <Pie> below — kept as one constant so
+// the connector line's own angle math (sectorMidAngleDeg) can never drift
+// out of sync with what Recharts actually rendered.
+const PADDING_ANGLE = 2;
 
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
@@ -65,8 +71,17 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const [activeRowEl, setActiveRowEl] = useState<HTMLButtonElement | null>(null);
   const activeIndex = activeId !== null ? chartData.findIndex((item) => rowKey(item) === activeId) : -1;
-  const midpoint = activeIndex >= 0 ? sectorMidpointFraction(chartData.map((item) => item.amount), activeIndex) : null;
-  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midpoint);
+  const midAngleDeg = activeIndex >= 0 ? sectorMidAngleDeg(chartData.map((item) => item.amount), activeIndex, PADDING_ANGLE) : null;
+  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midAngleDeg);
+
+  // Category colors are picked freely by the user — two categories can end
+  // up sharing the exact same one. A pattern (not just a color) keeps their
+  // sectors telling apart from each other at rest, before any hover ever
+  // happens; colors that don't collide stay a plain fill.
+  const { fillFor, defs } = buildColorPatterns(
+    "spending-donut",
+    chartData.map((item) => ({ key: rowKey(item), color: item.color }))
+  );
 
   return (
     <Card>
@@ -78,6 +93,7 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
           <p className="py-10 text-center text-sm text-text-muted">{t("dashboard.noExpensesThisMonth")}</p>
         ) : (
           <div ref={containerRef} className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center">
+            {defs}
             {connectorLine && (
               <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
                 <line
@@ -95,7 +111,7 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                     nameKey="name"
                     innerRadius="62%"
                     outerRadius="100%"
-                    paddingAngle={2}
+                    paddingAngle={PADDING_ANGLE}
                     stroke="var(--surface-1)"
                     strokeWidth={2}
                     isAnimationActive={false}
@@ -107,7 +123,7 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                       return (
                         <Cell
                           key={key}
-                          fill={item.color}
+                          fill={fillFor(key)}
                           fillOpacity={dimmed ? 0.35 : 1}
                           stroke={isActive ? "var(--text-primary)" : "var(--surface-1)"}
                           strokeWidth={isActive ? 3 : 2}

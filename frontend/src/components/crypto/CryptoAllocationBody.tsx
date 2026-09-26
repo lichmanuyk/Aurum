@@ -2,7 +2,7 @@ import { useSectionFormat } from "@/lib/displayCurrency";
 import { useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { liveId, useChartSelection } from "@/lib/chartSelection";
-import { sectorMidpointFraction, useSectorConnectorLine } from "@/lib/sectorConnector";
+import { sectorMidAngleDeg, useSectorConnectorLine } from "@/lib/sectorConnector";
 import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -106,8 +106,12 @@ export function CryptoAllocationBody({ holdings, isLoading, hidden }: CryptoAllo
   const activeId = liveId(selection.activeId, validIds);
   const pinnedId = liveId(selection.pinnedId, validIds);
   const activeIndex = activeId !== null ? donutData.findIndex((slice) => slice.key === activeId) : -1;
-  const midpoint = activeIndex >= 0 ? sectorMidpointFraction(donutData.map((slice) => slice.amount), activeIndex) : null;
-  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midpoint);
+  // Also the `paddingAngle` passed to <Pie> below — kept as one value so the
+  // connector line's own angle math can never drift out of sync with what
+  // Recharts actually rendered.
+  const paddingAngle = donutData.length > 1 ? 2 : 0;
+  const midAngleDeg = activeIndex >= 0 ? sectorMidAngleDeg(donutData.map((slice) => slice.amount), activeIndex, paddingAngle) : null;
+  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midAngleDeg);
 
   if (isLoading) {
     return <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>;
@@ -135,7 +139,7 @@ export function CryptoAllocationBody({ holdings, isLoading, hidden }: CryptoAllo
               nameKey="name"
               innerRadius="68%"
               outerRadius="100%"
-              paddingAngle={donutData.length > 1 ? 2 : 0}
+              paddingAngle={paddingAngle}
               stroke="var(--surface-1)"
               strokeWidth={2}
               isAnimationActive={false}
@@ -175,32 +179,39 @@ export function CryptoAllocationBody({ holdings, isLoading, hidden }: CryptoAllo
           {donutData.map((slice) => {
             const isActive = activeId === slice.key;
             const dimmed = activeId !== null && !isActive;
+            const label = slice.key === "other" ? t("crypto.allocation.other") : `${slice.name} (${slice.symbol})`;
             return (
+              // The row itself stays a plain <tr> (native "row" role) —
+              // aria-pressed only makes sense on an actual toggle button, not
+              // on a table row, so the real control (and its own accessible
+              // name/aria-pressed/keyboard handling) lives on the <button>
+              // inside the first cell below. Mouse hover still previews from
+              // anywhere in the row for a comfortably large hit area; that's
+              // presentational, not an accessibility concern.
               <tr
                 key={slice.key}
                 title={slice.key === "other" ? undefined : slice.name}
-                tabIndex={0}
                 ref={isActive ? setActiveRowEl : undefined}
-                aria-pressed={pinnedId === slice.key}
                 onMouseEnter={() => selection.enter(slice.key)}
                 onMouseLeave={selection.leave}
-                onFocus={() => selection.enter(slice.key)}
-                onBlur={selection.leave}
-                onClick={() => selection.togglePin(slice.key)}
-                onKeyDown={(event) => selection.onKeyDown(event, slice.key)}
-                className={cn(
-                  "cursor-pointer rounded-md transition-opacity",
-                  dimmed && "opacity-40",
-                  isActive && "bg-surface-2"
-                )}
+                className={cn("transition-opacity", dimmed && "opacity-40", isActive && "bg-surface-2")}
               >
                 <td className="py-1.5 pr-3">
-                  <span className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={pinnedId === slice.key}
+                    aria-label={`${label}, ${maskAmount(formatCryptoAmount(slice.amount), hidden)}, ${slice.percent.toFixed(0)}%`}
+                    onFocus={() => selection.enter(slice.key)}
+                    onBlur={selection.leave}
+                    onClick={() => selection.togglePin(slice.key)}
+                    onKeyDown={(event) => selection.onKeyDown(event, slice.key)}
+                    className="-m-1 flex items-center gap-2 rounded-md p-1"
+                  >
                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
                     <span className="font-medium text-text-primary">
                       {slice.key === "other" ? t("crypto.allocation.other") : slice.symbol}
                     </span>
-                  </span>
+                  </button>
                 </td>
                 <td className="py-1.5 pr-3 text-right font-medium tabular-nums text-text-primary">
                   {slice.percent.toFixed(1)}%

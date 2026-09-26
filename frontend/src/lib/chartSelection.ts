@@ -19,7 +19,17 @@ export function useChartSelection<Id extends string>() {
 
   const enter = useCallback((id: Id) => setHoveredId(id), []);
   const leave = useCallback(() => setHoveredId(null), []);
-  const togglePin = useCallback((id: Id) => setPinnedId((current) => (current === id ? null : id)), []);
+  // Clearing hoveredId here too (not just pinnedId) matters specifically for
+  // touch: tapping a row also focuses it (onFocus sets hoveredId, same as a
+  // real hover), but touch has no pointer to later "leave" from — there's no
+  // mouseleave/blur coming to ever clear it again. Without this, a second
+  // tap would correctly clear the pin yet the row would stay lit forever
+  // from that stuck hover. On a mouse, this is harmless: pinnedId alone
+  // already drives the highlight right after a click either way.
+  const togglePin = useCallback((id: Id) => {
+    setHoveredId(null);
+    setPinnedId((current) => (current === id ? null : id));
+  }, []);
   const clearPin = useCallback(() => setPinnedId(null), []);
   const onKeyDown = useCallback(
     (event: { key: string; preventDefault: () => void }, id: Id) => {
