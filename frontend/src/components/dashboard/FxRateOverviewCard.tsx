@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +36,15 @@ function formatRate(value: string): string {
   return Number(value).toLocaleString(getIntlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
 
+interface LoadProgress {
+  /** Which period (series_start_series_end) this progress/error belongs
+   * to — switching the Dashboard's own period must never keep showing a
+   * range or error left over from loading a *different* period. */
+  periodKey: string;
+  range: string;
+  failed: boolean;
+}
+
 /** Compact "1 USD/EUR = X PLN, 1 USD = X BYN/RUB" card — always these four
  * fixed pairs (see docs/tasks/dashboard-fx-periods-sparklines.md,
  * continuing PR #36), reacting to the same year/month period as the rest
@@ -47,6 +56,7 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
   const cache = useQueryClient();
   const query = useFxRatePeriodOverview(year, month);
   const data = query.data;
+  const periodKey = data ? `${data.series_start}_${data.series_end}` : null;
 
   // Retrying after a failed chunk resumes at the exact interval that
   // failed instead of re-requesting everything from `series_end` again —
@@ -55,19 +65,36 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
   // year/month (a new series_start/series_end) starts fresh rather than
   // resuming a now-irrelevant cursor.
   const cursorRef = useRef<{ periodKey: string; end: string } | null>(null);
+  const [progress, setProgress] = useState<LoadProgress | null>(null);
+  // `progress` is plain component state, so it can outlive the period it
+  // was recorded for (the user switched away mid-load) — only ever render
+  // it for the period it actually belongs to.
+  const activeProgress = progress?.periodKey === periodKey ? progress : null;
+
   const load = useMutation({
     mutationFn: async () => {
       const { series_start: seriesStart, series_end: seriesEnd } = data!;
-      const periodKey = `${seriesStart}_${seriesEnd}`;
+      const key = `${seriesStart}_${seriesEnd}`;
       const floor = [NBP_EPOCH, moveDay(seriesStart, -7)].sort().at(-1)!;
-      let end = cursorRef.current?.periodKey === periodKey ? cursorRef.current.end : seriesEnd;
+      let end = cursorRef.current?.periodKey === key ? cursorRef.current.end : seriesEnd;
       while (end >= floor) {
-        end = await loadChunk(floor, end);
-        cursorRef.current = { periodKey, end };
+        const from = [floor, moveDay(end, -92)].sort().at(-1)!;
+        setProgress({ periodKey: key, range: `${from} — ${end}`, failed: false });
+        try {
+          end = await loadChunk(floor, end);
+        } catch (error) {
+          setProgress({ periodKey: key, range: `${from} — ${end}`, failed: true });
+          throw error;
+        }
+        cursorRef.current = { periodKey: key, end };
+        // A chunk just saved real rows — reflect that in the card's own
+        // coverage right away instead of waiting for every remaining
+        // chunk to finish, which a later one might never do.
+        await cache.invalidateQueries({ queryKey: ["fx-rate-period-overview"] });
       }
       cursorRef.current = null;
+      setProgress(null);
     },
-    onSuccess: () => cache.invalidateQueries({ queryKey: ["fx-rate-period-overview"] }),
   });
 
   if (query.isError) {
@@ -101,7 +128,8 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
   // A pair can have its headline value (latest mode only needs the very
   // last day) while its own 30-day/period sparkline still has gaps —
   // this must still offer the load action, not just an unavailable
-  // headline value.
+  // headline value. Kept visible for the rest of an in-flight load too,
+  // in case a partial success already closed every remaining gap above.
   const hasGap = data.items.some((item) => item.value === null || item.coverage_available_days < item.coverage_expected_days);
 
   return (
@@ -136,12 +164,15 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
             );
           })}
         </div>
-        {hasGap && (
+        {(hasGap || load.isPending) && (
           <div className="space-y-1">
             <Button variant="secondary" disabled={load.isPending} onClick={() => load.mutate()}>
               {load.isPending ? t("fxOverview.loadingPeriodRates") : t("fxOverview.loadPeriodRates")}
             </Button>
-            {load.isError && <p role="alert" className="text-sm text-danger">{t("fxOverview.loadRatesError")}</p>}
+            {load.isPending && activeProgress && !activeProgress.failed && (
+              <p role="status" className="text-xs text-text-muted">{t("fxOverview.loadingRange", { range: activeProgress.range })}</p>
+            )}
+            {activeProgress?.failed && <p role="alert" className="text-sm text-danger">{t("fxOverview.loadRatesError")}</p>}
           </div>
         )}
       </CardContent>

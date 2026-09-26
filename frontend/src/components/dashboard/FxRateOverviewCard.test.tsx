@@ -199,3 +199,128 @@ it("resumes a failed multi-chunk load from the interval that failed, without re-
   // covering the rest of the (multi-chunk, >93-day) period.
   expect(nbpCalls.length).toBeGreaterThan(2);
 });
+
+it("reflects a partial success in the card's own coverage even when the next interval then fails", async () => {
+  const insufficient = {
+    mode: "average", label: "average", start_date: "2024-01-01", end_date: "2024-12-31",
+    series_start: "2024-01-01", series_end: "2024-12-31",
+    items: [directPair({
+      value: null, unavailable_reason: "incomplete_coverage", legs: [],
+      series: [{ date: "2024-01-01", value: null }], coverage_expected_days: 366, coverage_available_days: 0,
+    })],
+  };
+  // What the first (successful) chunk's own save should make visible —
+  // still short of full coverage, but no longer "no data at all".
+  const afterFirstChunk = {
+    ...insufficient,
+    items: [directPair({
+      value: "4.1000", unavailable_reason: null, legs: [{ currency: "USD", rate_date: "2024-12-31", source: "NBP:A:1" }],
+      series: [{ date: "2024-01-01", value: null }, { date: "2024-12-31", value: "4.1" }],
+      coverage_expected_days: 366, coverage_available_days: 93,
+    })],
+  };
+  let getCalls = 0;
+  const nbpCalls: { start_date: string; end_date: string }[] = [];
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes("/fx-rates/overview/period")) {
+      getCalls += 1;
+      return Promise.resolve(new Response(JSON.stringify(getCalls === 1 ? insufficient : afterFirstChunk), { status: 200 }));
+    }
+    const body = JSON.parse(init!.body as string) as { start_date: string; end_date: string };
+    nbpCalls.push({ start_date: body.start_date, end_date: body.end_date });
+    if (nbpCalls.length === 2) return Promise.resolve(new Response("Service unavailable", { status: 503 }));
+    return Promise.resolve(new Response(JSON.stringify({ saved: 0, protected: 0, absent_currencies: [] }), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await mountCard();
+  expect(container.textContent).toContain("Недостаточно истории");
+
+  const loadButton = container.querySelector("button")!;
+  await act(async () => { loadButton.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await settle();
+
+  // The first chunk's save is already visible via the card's own
+  // coverage/value, even though the very next interval then failed.
+  expect(container.textContent).toMatch(/4[.,]1/);
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить курсы за период");
+});
+
+it("shows the interval currently being fetched while a load is in flight", async () => {
+  const overview = {
+    mode: "latest", label: "latest", start_date: null, end_date: "2026-09-25",
+    series_start: "2026-08-27", series_end: "2026-09-25",
+    items: [directPair({
+      value: null, unavailable_reason: "fx_rate_missing", legs: [],
+      series: [{ date: "2026-09-25", value: null }], coverage_expected_days: 30, coverage_available_days: 0,
+    })],
+  };
+  let resolvePost: (() => void) | null = null;
+  const fetchMock = vi.fn((url: string) => {
+    if (url.includes("/fx-rates/overview/period")) return Promise.resolve(new Response(JSON.stringify(overview), { status: 200 }));
+    return new Promise<Response>((resolve) => {
+      resolvePost = () => resolve(new Response(JSON.stringify({ saved: 0, protected: 0, absent_currencies: [] }), { status: 200 }));
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await mountCard();
+
+  const loadButton = container.querySelector("button")!;
+  await act(async () => { loadButton.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await settle();
+
+  const status = container.querySelector('[role="status"]');
+  expect(status?.textContent).toContain("2026-09-25");
+  expect(loadButton.textContent).toContain("Загрузка курсов");
+
+  expect(resolvePost).not.toBeNull();
+  await act(async () => { resolvePost!(); });
+  await settle();
+  expect(container.querySelector('[role="status"]')).toBeNull();
+});
+
+it("never keeps a previous period's load progress or error visible after switching to a different period", async () => {
+  const periodA = {
+    mode: "latest", label: "latest", start_date: null, end_date: "2026-09-25",
+    series_start: "2026-08-27", series_end: "2026-09-25",
+    items: [directPair({
+      value: null, unavailable_reason: "fx_rate_missing", legs: [],
+      series: [{ date: "2026-09-25", value: null }], coverage_expected_days: 30, coverage_available_days: 0,
+    })],
+  };
+  const periodB = {
+    mode: "average", label: "average", start_date: "2025-01-01", end_date: "2025-01-31",
+    series_start: "2025-01-01", series_end: "2025-01-31",
+    items: [directPair({
+      value: null, unavailable_reason: "incomplete_coverage", legs: [],
+      series: [{ date: "2025-01-01", value: null }], coverage_expected_days: 31, coverage_available_days: 0,
+    })],
+  };
+  const fetchMock = vi.fn((url: string) => {
+    if (url.includes("year=2025")) return Promise.resolve(new Response(JSON.stringify(periodB), { status: 200 }));
+    if (url.includes("/fx-rates/overview/period")) return Promise.resolve(new Response(JSON.stringify(periodA), { status: 200 }));
+    return Promise.resolve(new Response("Service unavailable", { status: 503 })); // any NBP load for period A fails
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const queryClient = new QueryClient();
+  act(() => {
+    root.render(<QueryClientProvider client={queryClient}><FxRateOverviewCard year={null} month={null} /></QueryClientProvider>);
+  });
+  await settle();
+
+  const loadButton = container.querySelector("button")!;
+  await act(async () => { loadButton.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await settle();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить курсы за период");
+
+  act(() => {
+    root.render(<QueryClientProvider client={queryClient}><FxRateOverviewCard year={2025} month={1} /></QueryClientProvider>);
+  });
+  await settle();
+
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector('[role="status"]')).toBeNull();
+});

@@ -215,4 +215,39 @@ test.describe('Dashboard FX rate overview (period-aware)', () => {
       expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
     }
   });
+
+  test('shows the interval being loaded, and a partial success stays visible even when the next interval then fails', async ({ page, request }) => {
+    const snapshot = await (await request.get('/api/backup/export')).json();
+    try {
+      const empty = Object.fromEntries(Object.entries(snapshot).map(([key, value]) =>
+        [key, Array.isArray(value) && !['accounts', 'categories'].includes(key) ? [] : value]));
+      expect((await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: empty })).ok()).toBeTruthy();
+
+      let nbpCalls = 0;
+      await page.route('**/api/fx-rates/nbp', (route) => {
+        nbpCalls += 1;
+        // The second chunk ever requested fails; a year-to-date gap needs
+        // several ≤93-day chunks, so by then the first has already saved.
+        if (nbpCalls === 2) return route.fulfill({ status: 503, body: 'Synthetic outage' });
+        return route.fulfill({ json: { saved: 0, protected: 0, absent_currencies: [] } });
+      });
+
+      await page.goto('/');
+      const card = fxCard(page);
+      // "Год" (current year, year-to-date) spans more than one 93-day
+      // chunk with nothing seeded — a multi-chunk gap.
+      await page.getByRole('button', { name: 'Год', exact: true }).click();
+      const loadButton = card.getByRole('button', { name: /Загрузить курсы за период|Load rates for this period/ });
+      await expect(loadButton).toBeVisible();
+
+      await loadButton.click();
+      // Progress names the interval currently in flight, scoped to this load.
+      await expect(card.getByRole('status')).toBeVisible();
+      await expect.poll(() => nbpCalls).toBeGreaterThanOrEqual(2);
+      await expect(card.getByRole('alert')).toContainText(/Не удалось загрузить курсы за период|Couldn't load rates for this period/);
+    } finally {
+      const restore = await request.post('/api/backup/import', { data: snapshot });
+      expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+    }
+  });
 });
