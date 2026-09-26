@@ -1,7 +1,11 @@
 import { useSectionFormat } from "@/lib/displayCurrency";
+import { useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { liveId, useChartSelection } from "@/lib/chartSelection";
+import { sectorMidpointFraction, useSectorConnectorLine } from "@/lib/sectorConnector";
 import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import type { CryptoHolding } from "@/types";
 
 interface CryptoNetworkAllocationBodyProps {
@@ -90,20 +94,42 @@ export function CryptoNetworkAllocationBody({ holdings, isLoading, hidden }: Cry
   const unsetLabel = t("crypto.networkAllocation.unset");
   const otherLabel = t("crypto.allocation.other");
 
+  // All hooks run unconditionally, before the isLoading/empty early
+  // returns below — buildSlices([], ...) is a safe empty array either
+  // way, so there's nothing to branch on yet at this point.
+  const selection = useChartSelection<string>();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+  const [activeRowEl, setActiveRowEl] = useState<HTMLTableRowElement | null>(null);
+
+  const slices = buildSlices(holdings, unsetLabel);
+  const total = slices.reduce((sum, slice) => sum + slice.amount, 0);
+  const donutData = slices.map((slice) => ({ ...slice, percent: total ? (slice.amount / total) * 100 : 0 }));
+  const validIds = new Set(donutData.map((slice) => slice.key));
+  const activeId = liveId(selection.activeId, validIds);
+  const pinnedId = liveId(selection.pinnedId, validIds);
+  const activeIndex = activeId !== null ? donutData.findIndex((slice) => slice.key === activeId) : -1;
+  const midpoint = activeIndex >= 0 ? sectorMidpointFraction(donutData.map((slice) => slice.amount), activeIndex) : null;
+  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midpoint);
+
   if (isLoading) {
     return <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>;
   }
-  const slices = buildSlices(holdings, unsetLabel);
   if (slices.length === 0) {
     return <p className="py-10 text-center text-sm text-text-muted">{t("crypto.empty")}</p>;
   }
 
-  const total = slices.reduce((sum, slice) => sum + slice.amount, 0);
-  const donutData = slices.map((slice) => ({ ...slice, percent: (slice.amount / total) * 100 }));
-
   return (
-    <div className="flex flex-col items-center justify-center gap-6 sm:flex-row">
-      <div className="h-48 w-48 shrink-0 sm:h-56 sm:w-56">
+    <div ref={containerRef} className="relative flex flex-col items-center justify-center gap-6 sm:flex-row">
+      {connectorLine && (
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+          <line
+            x1={connectorLine.x1} y1={connectorLine.y1} x2={connectorLine.x2} y2={connectorLine.y2}
+            stroke="var(--text-muted)" strokeWidth={1}
+          />
+        </svg>
+      )}
+      <div ref={chartAreaRef} className="h-48 w-48 shrink-0 sm:h-56 sm:w-56">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -117,9 +143,30 @@ export function CryptoNetworkAllocationBody({ holdings, isLoading, hidden }: Cry
               strokeWidth={2}
               isAnimationActive={false}
             >
-              {donutData.map((slice) => (
-                <Cell key={slice.key} fill={slice.color} />
-              ))}
+              {donutData.map((slice) => {
+                const isActive = activeId === slice.key;
+                const dimmed = activeId !== null && !isActive;
+                const label = slice.key === "__other__" ? otherLabel : slice.label;
+                return (
+                  <Cell
+                    key={slice.key}
+                    fill={slice.color}
+                    fillOpacity={dimmed ? 0.35 : 1}
+                    stroke={isActive ? "var(--text-primary)" : "var(--surface-1)"}
+                    strokeWidth={isActive ? 3 : 2}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${label}, ${maskAmount(formatCryptoAmount(slice.amount), hidden)}, ${slice.percent.toFixed(0)}%`}
+                    aria-pressed={pinnedId === slice.key}
+                    onMouseEnter={() => selection.enter(slice.key)}
+                    onMouseLeave={selection.leave}
+                    onFocus={() => selection.enter(slice.key)}
+                    onBlur={selection.leave}
+                    onClick={() => selection.togglePin(slice.key)}
+                    onKeyDown={(event) => selection.onKeyDown(event, slice.key)}
+                  />
+                );
+              })}
             </Pie>
             <Tooltip content={<DonutTooltip hidden={hidden} otherLabel={otherLabel} />} />
           </PieChart>
@@ -128,22 +175,43 @@ export function CryptoNetworkAllocationBody({ holdings, isLoading, hidden }: Cry
 
       <table className="text-sm">
         <tbody>
-          {donutData.map((slice) => (
-            <tr key={slice.key} title={slice.key === "__other__" ? undefined : slice.label}>
-              <td className="py-1.5 pr-3">
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
-                  <span className="max-w-[140px] truncate font-medium text-text-primary">
-                    {slice.key === "__other__" ? otherLabel : slice.label}
+          {donutData.map((slice) => {
+            const isActive = activeId === slice.key;
+            const dimmed = activeId !== null && !isActive;
+            return (
+              <tr
+                key={slice.key}
+                title={slice.key === "__other__" ? undefined : slice.label}
+                tabIndex={0}
+                ref={isActive ? setActiveRowEl : undefined}
+                aria-pressed={pinnedId === slice.key}
+                onMouseEnter={() => selection.enter(slice.key)}
+                onMouseLeave={selection.leave}
+                onFocus={() => selection.enter(slice.key)}
+                onBlur={selection.leave}
+                onClick={() => selection.togglePin(slice.key)}
+                onKeyDown={(event) => selection.onKeyDown(event, slice.key)}
+                className={cn(
+                  "cursor-pointer rounded-md transition-opacity",
+                  dimmed && "opacity-40",
+                  isActive && "bg-surface-2"
+                )}
+              >
+                <td className="py-1.5 pr-3">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
+                    <span className="max-w-[140px] truncate font-medium text-text-primary">
+                      {slice.key === "__other__" ? otherLabel : slice.label}
+                    </span>
                   </span>
-                </span>
-              </td>
-              <td className="py-1.5 pr-3 text-right font-medium tabular-nums text-text-primary">
-                {slice.percent.toFixed(1)}%
-              </td>
-              <td className="py-1.5 text-right tabular-nums text-text-muted">{maskAmount(formatCryptoAmount(slice.amount), hidden)}</td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-medium tabular-nums text-text-primary">
+                  {slice.percent.toFixed(1)}%
+                </td>
+                <td className="py-1.5 text-right tabular-nums text-text-muted">{maskAmount(formatCryptoAmount(slice.amount), hidden)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
