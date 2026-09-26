@@ -1,6 +1,7 @@
 from app.core.money import Currency
 from datetime import date as date_
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -53,3 +54,15 @@ class AssetRead(AssetBase):
     id: int
     current_value: Decimal
     as_of_date: date_
+    # Read-only, additive — existing consumers that only read current_value/
+    # currency (native amount, unchanged semantics) are unaffected. The
+    # equivalent reuses the exact same FXConverter/date net_worth_service
+    # uses for this asset's contribution to the capital summary (see
+    # list_assets in api/routes/assets.py), not a new client-side rate or a
+    # separately-determined "today" — so it's directly comparable across
+    # assets in different native currencies, and matches the summary total.
+    # `None` (with `capital_value_error` set) when there's nothing to
+    # convert — never a fabricated 0 or a silent 1:1 guess.
+    capital_value: Decimal | None = None
+    capital_currency: str
+    capital_value_error: Literal["no_valuation", "fx_rate_missing"] | None = None

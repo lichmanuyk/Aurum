@@ -1,7 +1,7 @@
 import { useSectionFormat } from "@/lib/displayCurrency";
 import { useRef, useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { liveId, useChartSelection } from "@/lib/chartSelection";
+import { useChartSelection } from "@/lib/chartSelection";
 import { sectorMidAngleDeg, useSectorConnectorLine } from "@/lib/sectorConnector";
 import { maskAmount } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -91,20 +91,22 @@ export function CryptoAllocationBody({ holdings, isLoading, hidden }: CryptoAllo
   const { t } = useTranslation();
   const otherLabel = t("crypto.allocation.other");
 
-  // All hooks run unconditionally, before the isLoading/empty early
-  // returns below — buildSlices([]) is a safe empty array either way, so
-  // there's nothing to branch on yet at this point.
-  const selection = useChartSelection<string>();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartAreaRef = useRef<HTMLDivElement>(null);
-  const [activeRowEl, setActiveRowEl] = useState<HTMLTableRowElement | null>(null);
-
+  // Plain computation, not hooks — safe to run before the hook calls below
+  // regardless of isLoading/empty, since buildSlices([]) is a safe empty
+  // array either way.
   const slices = buildSlices(holdings);
   const total = slices.reduce((sum, slice) => sum + slice.amount, 0);
   const donutData = slices.map((slice) => ({ ...slice, percent: total ? (slice.amount / total) * 100 : 0 }));
   const validIds = new Set(donutData.map((slice) => slice.key));
-  const activeId = liveId(selection.activeId, validIds);
-  const pinnedId = liveId(selection.pinnedId, validIds);
+
+  // All hooks run unconditionally, before the isLoading/empty early
+  // returns below.
+  const selection = useChartSelection<string>(validIds);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartAreaRef = useRef<HTMLDivElement>(null);
+  const [activeRowEl, setActiveRowEl] = useState<HTMLTableRowElement | null>(null);
+
+  const { activeId, pinnedId } = selection;
   const activeIndex = activeId !== null ? donutData.findIndex((slice) => slice.key === activeId) : -1;
   // Also the `paddingAngle` passed to <Pie> below — kept as one value so the
   // connector line's own angle math can never drift out of sync with what

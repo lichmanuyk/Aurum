@@ -118,6 +118,9 @@ const ru = {
   "netWorth.assetsTable.empty": "Активов пока нет. Добавьте инвестиции, крипту, недвижимость или другое имущество.",
   "netWorth.assetsTable.asOf": "на {{date}}",
   "netWorth.assetsTable.annualRoi": "{{percent}}% годовых",
+  "netWorth.assetsTable.capitalEquivalent": "≈ {{amount}} в капитале",
+  "netWorth.assetsTable.noValuation": "нет оценки",
+  "netWorth.assetsTable.fxRateMissing": "нет курса",
 
   "crypto.addButton": "Добавить монету",
   "crypto.refreshButton": "Обновить цены",
@@ -700,6 +703,9 @@ const en: Record<keyof typeof ru, string> = {
   "netWorth.assetsTable.empty": "No assets yet. Add investments, crypto, real estate, or other property.",
   "netWorth.assetsTable.asOf": "as of {{date}}",
   "netWorth.assetsTable.annualRoi": "{{percent}}%/year",
+  "netWorth.assetsTable.capitalEquivalent": "≈ {{amount}} in capital",
+  "netWorth.assetsTable.noValuation": "not valued yet",
+  "netWorth.assetsTable.fxRateMissing": "no rate",
 
   "crypto.addButton": "Add coin",
   "crypto.refreshButton": "Refresh prices",

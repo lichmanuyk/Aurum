@@ -26,6 +26,23 @@ interface AssetsTableProps {
   onMovement: (asset: Asset) => void;
 }
 
+/** Native amounts in different currencies (EUR/USD/PLN…) can't be compared
+ * as plain numbers — this orders by each asset's own `capital_value` (its
+ * real contribution to the capital summary, see useAssets/list_assets)
+ * instead. Rows with nothing to compare (no valuation yet, or a missing FX
+ * rate) sort after every valued row rather than being lost or landing
+ * arbitrarily among them — still shown, just with an explicit label instead
+ * of a number (see the render below). Equal values, and the unvalued group
+ * itself, get a stable order: name, then id. */
+function compareByCapitalValue(a: Asset, b: Asset): number {
+  const valueOf = (asset: Asset) => (asset.capital_value !== null ? Number(asset.capital_value) : null);
+  const av = valueOf(a);
+  const bv = valueOf(b);
+  if (av !== null && bv !== null && av !== bv) return bv - av;
+  if ((av !== null) !== (bv !== null)) return av !== null ? -1 : 1;
+  return a.name.localeCompare(b.name) || a.id - b.id;
+}
+
 export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTableProps) {
   const { t, language } = useTranslation();
 
@@ -33,9 +50,11 @@ export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTable
     return <p className="py-10 text-center text-sm text-text-muted">{t("netWorth.assetsTable.empty")}</p>;
   }
 
+  const sorted = [...items].sort(compareByCapitalValue);
+
   return (
     <ul className="divide-y divide-gridline">
-      {items.map((asset) => {
+      {sorted.map((asset) => {
         const Icon = getCategoryIcon(CLASS_ICONS[asset.asset_class]);
         const roleColor = ROLE_COLORS[asset.capital_role];
         const cashFlow = asset.monthly_cash_flow !== null ? Number(asset.monthly_cash_flow) : null;
@@ -62,8 +81,32 @@ export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTable
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-sm font-medium tabular-nums text-text-primary">
-                {formatMoney(asset.current_value, asset.currency)}
+                {/* A never-valued asset has no real amount to show — "0"
+                    there would read as an actual zero valuation, not as
+                    "unknown". A genuine zero (a recorded valuation of 0) and
+                    a known native amount with just a missing FX rate both
+                    keep showing their real figure below. */}
+                {asset.capital_value_error === "no_valuation" ? "—" : formatMoney(asset.current_value, asset.currency)}
               </span>
+              {/* The sort order above (compareByCapitalValue) is by this
+                  equivalent, not the native amount shown above it — surface
+                  it too, so the order is explainable, not just trusted. An
+                  explicit label instead when there's nothing to convert:
+                  never a fabricated 0 or a silent 1:1. */}
+              {asset.capital_value_error && (
+                <span className="block text-xs text-text-muted">
+                  {t(
+                    asset.capital_value_error === "no_valuation"
+                      ? "netWorth.assetsTable.noValuation"
+                      : "netWorth.assetsTable.fxRateMissing"
+                  )}
+                </span>
+              )}
+              {asset.capital_value !== null && asset.currency !== asset.capital_currency && (
+                <span className="block text-xs text-text-muted">
+                  {t("netWorth.assetsTable.capitalEquivalent", { amount: formatMoney(asset.capital_value, asset.capital_currency) })}
+                </span>
+              )}
               {cashFlow !== null && cashFlow !== 0 && (
                 <span
                   className="block text-xs tabular-nums"
