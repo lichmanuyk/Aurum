@@ -1,13 +1,13 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator } from "@playwright/test";
 import { test, expect } from "../fixtures";
 import { makeHolding } from "../../frontend/src/test/cryptoFixtures";
+import { segmentCrossesCircle } from "../../frontend/src/lib/sectorConnector";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
 
 // See docs/tasks/donut-chart-interaction.md: hovering a donut sector
 // highlights its list row (and vice versa) with a synchronized, reversible
 // highlight; keyboard focus and a phone tap give the same pairing; a click
-// pins it until clicked again or Escape; a thin connector line joins the
-// active row to its sector on wide screens only. Covers the three
+// pins it until clicked again or Escape. Covers the three
 // genuinely-donut-next-to-list surfaces reviewed for this task —
 // SpendingByCategoryCard (dashboard), CryptoAllocationBody and
 // CryptoNetworkAllocationBody (crypto page) — plus the SpendingByCategoryCard
@@ -15,6 +15,15 @@ import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers
 // not a donut, and CryptoRiskAllocationBody/CryptoStatsRow have no chart at
 // all — none of the three have a sector to synchronize with, so none were
 // touched (see the PR description for the full reviewed/scope list).
+//
+// See docs/tasks/dashboard-donut-colors-routing.md for a later, dashboard-
+// only change on top of the above: SpendingByCategoryCard now fills
+// colliding categories with a solid ramp color instead of a hatched
+// pattern (colorPatterns.ts, removed), and its connector is a routed
+// polyline (useDonutConnectorPath) instead of one straight line —
+// CryptoAllocationBody/CryptoNetworkAllocationBody keep the original
+// pattern-free-by-construction ramp and the straight `useSectorConnectorLine`
+// exactly as before, unaffected by either change.
 
 const BASE_URL = process.env.AURUM_E2E_BASE_URL ?? "http://localhost:3100";
 
@@ -23,9 +32,10 @@ const BASE_URL = process.env.AURUM_E2E_BASE_URL ?? "http://localhost:3100";
  * <line>, not recomputed, so a test comparing it against a sector's own
  * bounding box is checking what was really drawn. The wrapping <svg> is the
  * absolutely-positioned overlay sized to `containerRef` (see
- * SpendingByCategoryCard.tsx/CryptoAllocationBody.tsx/
- * CryptoNetworkAllocationBody.tsx) — its own bounding box in page space is
- * exactly the offset the line's local coordinates are relative to. */
+ * CryptoAllocationBody.tsx/CryptoNetworkAllocationBody.tsx — the dashboard's
+ * own connector is a routed <polyline>, see connectorPolylinePoints below)
+ * — its own bounding box in page space is exactly the offset the line's
+ * local coordinates are relative to. */
 async function connectorLineEndpoint(card: Locator): Promise<{ x: number; y: number }> {
   const svg = card.locator("svg.absolute.inset-0");
   // Sequential, not Promise.all — reading the box and the line's own
@@ -37,18 +47,22 @@ async function connectorLineEndpoint(card: Locator): Promise<{ x: number; y: num
   return { x: svgBox.x + point.x2, y: svgBox.y + point.y2 };
 }
 
-/** The actual rendered <pattern id="..."> markup for a `fill="url(#...)"`
- * value, with the id stripped — lets a test compare what two colliding
- * categories' tiles actually look like, not just that their (always-unique,
- * per-key) pattern *ids* differ. See colorPatterns.tsx/buildColorPatterns. */
-async function patternSignature(page: Page, fillAttr: string): Promise<string> {
-  const id = fillAttr.match(/^url\(#(.+)\)$/)?.[1];
-  if (!id) throw new Error(`not a pattern fill: ${fillAttr}`);
-  return page.locator(`pattern#${id}`).evaluate((el) => {
-    const clone = el.cloneNode(true) as Element;
-    clone.removeAttribute("id");
-    return clone.outerHTML;
-  });
+/** The dashboard's own routed connector — every waypoint of the actual
+ * rendered <polyline>, converted to page coordinates (same offset
+ * convention as connectorLineEndpoint above). */
+async function connectorPolylinePoints(card: Locator): Promise<{ x: number; y: number }[]> {
+  const svg = card.locator("svg.absolute.inset-0");
+  const svgBox = await svg.boundingBox();
+  if (!svgBox) throw new Error("connector polyline <svg> not found");
+  const raw = await svg.locator("polyline").getAttribute("points");
+  if (!raw) throw new Error("connector <polyline> has no points");
+  return raw
+    .trim()
+    .split(/\s+/)
+    .map((pair) => {
+      const [x, y] = pair.split(",").map(Number);
+      return { x: svgBox.x + x, y: svgBox.y + y };
+    });
 }
 
 async function expectPointInsideBox(point: { x: number; y: number }, box: Locator, slackPx = 4) {
@@ -85,12 +99,21 @@ test("same-colored dashboard categories: hover/keyboard/click sync row↔sector 
   // Before any interaction at all: two categories sharing the exact same
   // color must already render as visually distinguishable sectors — relying
   // on the synchronized highlight alone wouldn't help a sighted user who
-  // hasn't hovered anything yet (see buildColorPatterns in
-  // @/lib/colorPatterns).
+  // hasn't hovered anything yet. Solid ramp colors now, not a hatched
+  // pattern (see resolveDonutColors in @/lib/dashboardDonutColors).
   const [fillA, fillB] = await Promise.all([sectorA.getAttribute("fill"), sectorB.getAttribute("fill")]);
   expect(fillA).toBe(sameColor); // the color's first occurrence stays plain
-  expect(fillB).toMatch(/^url\(#/); // the collision gets a pattern instead
+  expect(fillB).toMatch(/^var\(--series-\d\)$/); // the collision borrows a solid ramp color, no hatching
   expect(fillA).not.toBe(fillB);
+  // The row's own marker matches its sector exactly, including the
+  // collision — same map, not a second independent notion of the color.
+  const rowBIcon = rowB.locator("svg");
+  const probe = await page.evaluateHandle((color) => {
+    const div = document.createElement("div");
+    div.style.color = color;
+    return div.style.color;
+  }, fillB!);
+  expect(await rowBIcon.evaluate((el) => (el as HTMLElement).style.color)).toBe(await probe.jsonValue());
 
   // Hovering a row highlights its own sector and dims the other row/sector.
   await rowA.hover();
@@ -134,7 +157,7 @@ test("same-colored dashboard categories: hover/keyboard/click sync row↔sector 
   await expect(rowA).not.toHaveClass(/bg-surface-2/);
 });
 
-test("five same-colored dashboard categories get five genuinely distinct pattern tiles, and each row matches its own sector", async ({ page, request }) => {
+test("five same-colored dashboard categories get five genuinely distinct solid fills, and each row matches its own sector", async ({ page, request }) => {
   // Isolated via the same export/wipe-transactions/restore dance as "a
   // single expense category..." below — other specs in this same run (and
   // earlier tests in this file) already have their own categories with
@@ -165,63 +188,94 @@ test("five same-colored dashboard categories get five genuinely distinct pattern
     const card = page.locator("div.rounded-xl", { has: page.getByText("Расходы по категориям", { exact: true }) });
     const list = card.locator("ul");
     const chart = card.locator(".recharts-wrapper");
-    // The swatch is a dedicated 10×10 <svg><rect>, not the icon badge (whose
-    // own <svg> icon glyphs are a different size and never use <rect>) —
-    // scoped by width so it can't accidentally match an icon's own shape.
-    const swatchRect = (row: Locator) => row.locator('svg[width="10"] rect');
 
-    // The color's first occurrence stays plain — no swatch needed, and its
-    // sector is the only one still showing the raw, unpatterned color.
-    const firstRow = list.getByRole("button", { name: new RegExp(`^${names[0]}\\b`) });
+    // The color's first occurrence stays plain, and its sector is the only
+    // one still showing the raw color.
     const firstSector = chart.getByRole("button", { name: new RegExp(`^${names[0]},`) });
-    await expect(swatchRect(firstRow)).toHaveCount(0);
     expect(await firstSector.getAttribute("fill")).toBe(color);
 
-    // Every occurrence after the first needs its own tile — matched exactly
-    // between the row's own swatch and its sector (so the pairing is
-    // legible without hovering anything), and genuinely distinct from every
-    // other collision's tile, not just a different pattern id.
-    const collisionSignatures: string[] = [];
+    // Every occurrence after the first borrows a solid ramp color — matched
+    // exactly between the row's own icon marker and its sector (so the
+    // pairing is legible without hovering anything), and genuinely distinct
+    // from every other collision's color, not just a different pattern id.
+    const collisionFills: string[] = [];
     for (const name of names.slice(1)) {
       const row = list.getByRole("button", { name: new RegExp(`^${name}\\b`) });
       const sector = chart.getByRole("button", { name: new RegExp(`^${name},`) });
-      const rowFill = await swatchRect(row).getAttribute("fill");
+      const rowIconColor = await row.locator("svg").evaluate((el) => (el as HTMLElement).style.color);
       const sectorFill = await sector.getAttribute("fill");
-      expect(rowFill).toBe(sectorFill);
-      expect(rowFill).toMatch(/^url\(#/);
-      collisionSignatures.push(await patternSignature(page, rowFill!));
+      expect(sectorFill).toMatch(/^var\(--series-\d\)$/);
+      const normalizedSectorFill = await page.evaluate((color) => {
+        const div = document.createElement("div");
+        div.style.color = color;
+        return div.style.color;
+      }, sectorFill!);
+      expect(rowIconColor).toBe(normalizedSectorFill);
+      collisionFills.push(sectorFill!);
     }
-    expect(new Set(collisionSignatures).size).toBe(collisionSignatures.length);
+    expect(new Set(collisionFills).size).toBe(collisionFills.length);
   } finally {
     const restore = await request.post("/api/backup/import", { data: snapshot });
     expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
   }
 });
 
-test("the donut+list connector line lands on the real arc of an unequal, small sector at 1440px, and is absent at 375px", async ({ page, request }) => {
+test("the dashboard's routed connector reaches the real arc on both the near and far half, never crossing the donut itself, with an absent line and no overflow at 375px", async ({ page, request }) => {
   const accountId = await getDefaultAccountId(request);
-  // Deliberately unequal (80/20) and dedicated (not the shared "Groceries"
-  // fixture other specs also post to) — hovering the smaller sector is the
-  // case a naive proportional-split-only formula (ignoring Recharts' own
-  // paddingAngle/margin) would most visibly miss.
-  const big = (await (await request.post("/api/categories", { data: { name: "Connector Big", kind: "expense", color: "#2a78d6" } })).json());
-  const small = (await (await request.post("/api/categories", { data: { name: "Connector Small", kind: "expense", color: "#eb6834" } })).json());
-  await createTransaction(request, { account_id: accountId, category_id: big.id, type: "expense", amount: "80.00", description: "connector-big", date: "2024-06-01" });
-  await createTransaction(request, { account_id: accountId, category_id: small.id, type: "expense", amount: "20.00", description: "connector-small", date: "2024-06-01" });
+  // Three unequal shares (not just two) so one of them lands on the *far*
+  // half of the donut (away from the list, where the routed line has to
+  // detour around the ring rather than cut a near-straight shot) and
+  // another lands on the near half — see docs/tasks/
+  // dashboard-donut-colors-routing.md's "особенно дальняя от списка
+  // половина" acceptance point.
+  const far = (await (await request.post("/api/categories", { data: { name: "Connector Far", kind: "expense", color: "#2a78d6" } })).json());
+  const near = (await (await request.post("/api/categories", { data: { name: "Connector Near", kind: "expense", color: "#eb6834" } })).json());
+  const rest = (await (await request.post("/api/categories", { data: { name: "Connector Rest", kind: "expense", color: "#1baf7a" } })).json());
+  await createTransaction(request, { account_id: accountId, category_id: far.id, type: "expense", amount: "45.00", description: "connector-far", date: "2024-06-01" });
+  await createTransaction(request, { account_id: accountId, category_id: near.id, type: "expense", amount: "10.00", description: "connector-near", date: "2024-06-01" });
+  await createTransaction(request, { account_id: accountId, category_id: rest.id, type: "expense", amount: "45.00", description: "connector-rest", date: "2024-06-01" });
 
   await page.goto("/");
   const card = page.locator("div.rounded-xl", { has: page.getByText("Расходы по категориям", { exact: true }) });
-  const row = card.locator("ul").getByRole("button", { name: /Connector Small/ });
-  const sector = card.locator(".recharts-wrapper").getByRole("button", { name: /^Connector Small,/ });
-  await row.hover();
+  const chartWrapper = card.locator(".recharts-wrapper");
 
-  const line = card.locator("svg line");
-  await expect(line).toBeVisible();
-  // The line's chart-side endpoint must land inside (or right at the edge
-  // of) the *specific active sector's* own rendered path — the real arc,
-  // not just anywhere within the chart's outer square.
-  const endpoint = await connectorLineEndpoint(card);
-  await expectPointInsideBox(endpoint, sector);
+  async function checkRoutedConnector(name: string) {
+    const row = card.locator("ul").getByRole("button", { name: new RegExp(`^${name}\\b`) });
+    const sector = chartWrapper.getByRole("button", { name: new RegExp(`^${name},`) });
+    await row.hover();
+
+    const polyline = card.locator("svg polyline");
+    await expect(polyline).toBeVisible();
+
+    const [points, rowBox, chartBox] = await Promise.all([connectorPolylinePoints(card), row.boundingBox(), chartWrapper.boundingBox()]);
+    expect(rowBox).not.toBeNull();
+    expect(chartBox).not.toBeNull();
+
+    // Equal first horizontal run — same length regardless of which row or
+    // which side of the donut it points to.
+    expect(points[0].y).toBeCloseTo(rowBox!.y + rowBox!.height / 2, 0);
+    expect(points[0].x - points[1].x).toBeCloseTo(16, 0);
+
+    // The endpoint lands inside the specific active sector's own rendered
+    // path — the real arc, not just anywhere in the chart's outer square.
+    await expectPointInsideBox(points[points.length - 1], sector);
+
+    // Every segment of the *actual rendered* route — read from real layout,
+    // not synthetic test coordinates — stays clear of the donut itself.
+    // margin=5 mirrors CHART_MARGIN_PX in sectorConnector.ts (Recharts' own
+    // default chart margin, unrelated to this task and unchanged by it).
+    const margin = 5;
+    const center = { x: chartBox!.x + chartBox!.width / 2, y: chartBox!.y + chartBox!.height / 2 };
+    const outerRadius = Math.min(chartBox!.width - 2 * margin, chartBox!.height - 2 * margin) / 2;
+    for (let i = 0; i < points.length - 1; i++) {
+      expect(segmentCrossesCircle(points[i], points[i + 1], center, outerRadius)).toBe(false);
+    }
+
+    await page.mouse.move(0, 0);
+  }
+
+  await checkRoutedConnector("Connector Far");
+  await checkRoutedConnector("Connector Near");
 
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -230,8 +284,8 @@ test("the donut+list connector line lands on the real arc of an unequal, small s
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
 
   await page.setViewportSize({ width: 375, height: 900 });
-  await row.hover();
-  await expect(line).toHaveCount(0); // stacked layout — sync highlight only, no line
+  await card.locator("ul").getByRole("button", { name: /Connector Far/ }).hover();
+  await expect(card.locator("svg polyline")).toHaveCount(0); // stacked layout — sync highlight only, no line
   const narrowOverflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,

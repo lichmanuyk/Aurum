@@ -133,3 +133,155 @@ export function useSectorConnectorLine(
 
   return line;
 }
+
+// ---------------------------------------------------------------------------
+// Routed connector (SpendingByCategoryCard only — see
+// docs/tasks/dashboard-donut-colors-routing.md). CryptoAllocationBody,
+// CryptoNetworkAllocationBody and AssetAllocationCard keep using the
+// straight `useSectorConnectorLine` above untouched; this is a separate,
+// additive export, not a replacement.
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** Default clearance kept between the routed line and the donut's own
+ * outer edge — small enough to stay visually snug, big enough that a few
+ * pixels of stroke width/anti-aliasing never reads as touching the ring
+ * anywhere but the one intended endpoint. */
+const ROUTE_CLEARANCE_PX = 10;
+
+/** How far every row's connector runs horizontally before it's allowed to
+ * turn — the *same* for every row (see the task's "равную длину первого
+ * горизонтального участка" acceptance point), regardless of how far above
+ * or below the donut's own center that row happens to sit. */
+const ROUTE_HORIZONTAL_RUN_PX = 16;
+
+/** Whether the segment p1→p2 actually passes *through* the disc of
+ * `radius` around `center`, not just near it — the standard closest-point-
+ * on-segment-to-center distance test. `epsilonPx` treats a point sitting
+ * within that many pixels of the boundary as "on it, not through it," so a
+ * segment whose only contact is the exact endpoint this whole route is
+ * built to land on (radius R, by construction) doesn't flag itself.
+ * Exported for direct unit testing — a route is only trustworthy if every
+ * one of its own segments passes this, not just its overall bounding box. */
+export function segmentCrossesCircle(p1: Point, p2: Point, center: Point, radius: number, epsilonPx = 0.5): boolean {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const closest =
+    lengthSquared === 0
+      ? p1
+      : (() => {
+          const t = Math.max(0, Math.min(1, ((center.x - p1.x) * dx + (center.y - p1.y) * dy) / lengthSquared));
+          return { x: p1.x + t * dx, y: p1.y + t * dy };
+        })();
+  const distance = Math.hypot(closest.x - center.x, closest.y - center.y);
+  return distance < radius - epsilonPx;
+}
+
+/** The routed polyline's own waypoints, in the same page-pixel space as the
+ * `center`/`outerRadius` passed in (page coordinates, matching
+ * `getBoundingClientRect()` — the caller subtracts the container's own
+ * offset when it renders these, same as `useSectorConnectorLine` already
+ * does for its single line).
+ *
+ * From the row (`rowAnchor`) the line always runs horizontally by exactly
+ * `ROUTE_HORIZONTAL_RUN_PX` first. From there, if a straight run the rest
+ * of the way to just outside the target arc wouldn't cross the donut, it
+ * takes it — the near half of the donut (facing the list) usually can.
+ * Otherwise it steps *around* the donut's own keep-out circle (radius
+ * `outerRadius + clearancePx`) via whichever of the top/bottom is on the
+ * target's own side: two segments held at/beyond that circle's own
+ * tangent height are provably clear of the smaller, real donut regardless
+ * of how far the corner has to reach horizontally — no per-case fallback,
+ * no chord approximation, no universal path search, just the one
+ * construction this shape always needs. The final segment always runs
+ * radially into the target point — the only place the line ever actually
+ * touches the donut. Exported for direct unit testing —
+ * see sectorConnector.test.ts. */
+export function buildDonutRoutePoints(
+  rowAnchor: Point,
+  center: Point,
+  outerRadius: number,
+  midAngleDeg: number,
+  options: { horizontalRunPx?: number; clearancePx?: number } = {}
+): Point[] {
+  const horizontalRunPx = options.horizontalRunPx ?? ROUTE_HORIZONTAL_RUN_PX;
+  const clearancePx = options.clearancePx ?? ROUTE_CLEARANCE_PX;
+
+  const rowPoint = rowAnchor;
+  const afterRun: Point = { x: rowPoint.x - horizontalRunPx, y: rowPoint.y };
+
+  const keepOutRadius = outerRadius + clearancePx;
+  const pointAtRadius = (radius: number): Point => ({
+    x: center.x + Math.cos(-midAngleDeg * RADIAN) * radius,
+    y: center.y + Math.sin(-midAngleDeg * RADIAN) * radius,
+  });
+  const target = pointAtRadius(outerRadius);
+  const approach = pointAtRadius(keepOutRadius);
+
+  if (!segmentCrossesCircle(afterRun, approach, center, outerRadius)) {
+    return [rowPoint, afterRun, approach, target];
+  }
+
+  // The near (list-facing) straight shot doesn't clear the donut — the
+  // target sits on the far half. Go around via whichever of the top/
+  // bottom tangent heights the target itself is on: a horizontal run
+  // *at* that tangent height never comes closer to the center than
+  // `keepOutRadius` (by definition of "tangent"), and the vertical hops
+  // connecting it to `afterRun`/`approach` stay at or outside that same
+  // radius too, since neither ever needs to cross back past the tangent
+  // height itself to reach either endpoint.
+  const viaTop = approach.y <= center.y;
+  const corridorY = viaTop ? center.y - keepOutRadius : center.y + keepOutRadius;
+  const corner1: Point = { x: afterRun.x, y: corridorY };
+  const corner2: Point = { x: approach.x, y: corridorY };
+  return [rowPoint, afterRun, corner1, corner2, approach, target];
+}
+
+/** Same wide-screen-only gating and DOM measurement as
+ * `useSectorConnectorLine`, but returns the routed polyline's waypoints
+ * (container-relative, ready for an SVG `<polyline points=...>`) instead of
+ * one straight line's endpoints. */
+export function useDonutConnectorPath(
+  containerRef: RefObject<HTMLElement | null>,
+  chartAreaRef: RefObject<HTMLElement | null>,
+  activeRowEl: HTMLElement | null,
+  midAngleDeg: number | null
+): Point[] | null {
+  const [path, setPath] = useState<Point[] | null>(null);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const chartArea = chartAreaRef.current;
+    if (!container || !chartArea || !activeRowEl || midAngleDeg === null) {
+      setPath(null);
+      return;
+    }
+    const angle = midAngleDeg;
+
+    function recompute() {
+      const isWide = typeof window.matchMedia === "function" && window.matchMedia("(min-width: 640px)").matches;
+      if (!isWide) {
+        setPath(null);
+        return;
+      }
+      const containerRect = container!.getBoundingClientRect();
+      const chartRect = chartArea!.getBoundingClientRect();
+      const rowRect = activeRowEl!.getBoundingClientRect();
+      const center: Point = { x: chartRect.left + chartRect.width / 2, y: chartRect.top + chartRect.height / 2 };
+      const outerRadius = Math.min(chartRect.width - 2 * CHART_MARGIN_PX, chartRect.height - 2 * CHART_MARGIN_PX) / 2;
+      const rowAnchor: Point = { x: rowRect.left, y: rowRect.top + rowRect.height / 2 };
+      const points = buildDonutRoutePoints(rowAnchor, center, outerRadius, angle);
+      setPath(points.map((point) => ({ x: point.x - containerRect.left, y: point.y - containerRect.top })));
+    }
+
+    recompute();
+    window.addEventListener("resize", recompute);
+    return () => window.removeEventListener("resize", recompute);
+  }, [containerRef, chartAreaRef, activeRowEl, midAngleDeg]);
+
+  return path;
+}

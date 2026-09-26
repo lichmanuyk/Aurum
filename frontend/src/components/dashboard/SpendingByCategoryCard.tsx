@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
 import { useChartSelection } from "@/lib/chartSelection";
-import { buildColorPatterns } from "@/lib/colorPatterns";
-import { sectorMidAngleDeg, useSectorConnectorLine } from "@/lib/sectorConnector";
+import { resolveDonutColors } from "@/lib/dashboardDonutColors";
+import { sectorMidAngleDeg, useDonutConnectorPath } from "@/lib/sectorConnector";
 import { cn } from "@/lib/utils";
 
 // Also the `paddingAngle` passed to <Pie> below — kept as one constant so
@@ -71,15 +71,17 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
   const [activeRowEl, setActiveRowEl] = useState<HTMLButtonElement | null>(null);
   const activeIndex = activeId !== null ? chartData.findIndex((item) => rowKey(item) === activeId) : -1;
   const midAngleDeg = activeIndex >= 0 ? sectorMidAngleDeg(chartData.map((item) => item.amount), activeIndex, PADDING_ANGLE) : null;
-  const connectorLine = useSectorConnectorLine(containerRef, chartAreaRef, activeRowEl, midAngleDeg);
+  const connectorPath = useDonutConnectorPath(containerRef, chartAreaRef, activeRowEl, midAngleDeg);
 
   // Category colors are picked freely by the user — two categories can end
-  // up sharing the exact same one. A pattern (not just a color) keeps their
-  // sectors telling apart from each other at rest, before any hover ever
-  // happens; colors that don't collide stay a plain fill.
-  const { fillFor, defs } = buildColorPatterns(
-    "spending-donut",
-    chartData.map((item) => ({ key: rowKey(item), color: item.color }))
+  // up sharing the exact same one. A user preference after PR #42 asks for
+  // solid, distinguishable fills here (like the crypto donut), not a
+  // hatched overlay: colliding categories borrow a slot from the app's own
+  // categorical ramp instead. The row's own marker below reads from the
+  // same map, so it always matches its sector, including "Other".
+  const colorFor = useMemo(
+    () => resolveDonutColors(chartData.map((item) => ({ key: rowKey(item), color: item.color }))),
+    [chartData]
   );
 
   return (
@@ -92,12 +94,13 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
           <p className="py-10 text-center text-sm text-text-muted">{t("dashboard.noExpensesThisMonth")}</p>
         ) : (
           <div ref={containerRef} className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center">
-            {defs}
-            {connectorLine && (
+            {connectorPath && (
               <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-                <line
-                  x1={connectorLine.x1} y1={connectorLine.y1} x2={connectorLine.x2} y2={connectorLine.y2}
-                  stroke="var(--text-muted)" strokeWidth={1}
+                <polyline
+                  points={connectorPath.map((point) => `${point.x},${point.y}`).join(" ")}
+                  fill="none"
+                  stroke="var(--text-muted)"
+                  strokeWidth={1}
                 />
               </svg>
             )}
@@ -122,7 +125,7 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                       return (
                         <Cell
                           key={key}
-                          fill={fillFor(key)}
+                          fill={colorFor.get(key)}
                           fillOpacity={dimmed ? 0.35 : 1}
                           stroke={isActive ? "var(--text-primary)" : "var(--surface-1)"}
                           strokeWidth={isActive ? 3 : 2}
@@ -152,13 +155,10 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                 const key = rowKey(item);
                 const isActive = activeId === key;
                 const dimmed = activeId !== null && !isActive;
-                // The icon badge alone only carries the *color* — for a
-                // category whose sector got a pattern (because another
-                // category shares its color, see buildColorPatterns above),
-                // the row needs the same tell visible at rest, not just on
-                // hover, or row↔sector pairing goes back to "guess by color".
-                const rowFill = fillFor(key);
-                const isPatterned = rowFill.startsWith("url(");
+                // Same resolved color as this row's own sector (see
+                // colorFor above) — not the category's raw stored color,
+                // which is exactly what two colliding categories share.
+                const rowColor = colorFor.get(key) ?? item.color;
                 return (
                   <li key={key} className="flex items-center gap-1 py-2 first:pt-0 last:pb-0">
                     {/* Fixed-width slot on every row, populated or not — the
@@ -196,15 +196,15 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                     >
                       <span
                         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                        style={{ backgroundColor: `${item.color}26` }}
+                        // color-mix, not a hex+alpha suffix (`${color}26`) —
+                        // rowColor can be a `var(--series-N)` reference for a
+                        // collision-loser, and you can't append an alpha
+                        // digit pair straight onto a var() the way you can a
+                        // literal hex string.
+                        style={{ backgroundColor: `color-mix(in srgb, ${rowColor} 15%, transparent)` }}
                       >
-                        <Icon size={14} style={{ color: item.color }} />
+                        <Icon size={14} style={{ color: rowColor }} />
                       </span>
-                      {isPatterned && (
-                        <svg width={10} height={10} className="shrink-0 rounded-[2px]" aria-hidden="true">
-                          <rect width={10} height={10} rx={2} fill={rowFill} />
-                        </svg>
-                      )}
                       <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
                         {translateCategoryName(item.name)}
                       </span>

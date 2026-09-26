@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { SpendingByCategoryCard } from "./SpendingByCategoryCard";
-import { buildColorPatterns } from "@/lib/colorPatterns";
+import { resolveDonutColors } from "@/lib/dashboardDonutColors";
 import { setCurrency } from "@/lib/i18n";
 import type { CategoryBreakdownItem } from "@/types";
 
@@ -145,7 +145,7 @@ it("does not resurrect a cleared pin when the same category comes back in a late
   expect(revivedRowA.className).not.toContain("bg-surface-2");
 });
 
-it("a row past the first same-colored occurrence shows the same pattern swatch buildColorPatterns computes for it, and the first shows none", () => {
+it("a row past the first same-colored occurrence shows the same resolved solid color the sector will use — no hatching, and the icon marker matches", () => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -158,23 +158,25 @@ it("a row past the first same-colored occurrence shows the same pattern swatch b
 
   const rows = Array.from(container.querySelectorAll("ul > li"));
   const [rowA, rowB] = rows;
-  expect(rowA.querySelector("svg rect")).toBeNull(); // color's first occurrence needs no extra marker
-  const swatch = rowB.querySelector("svg rect");
-  expect(swatch).not.toBeNull();
+  // Exactly one <svg> per row — the category icon itself. No extra pattern
+  // swatch alongside it: a solid marker is the whole point now.
+  expect(rowA.querySelectorAll("svg")).toHaveLength(1);
+  expect(rowB.querySelectorAll("svg")).toHaveLength(1);
 
   // Cross-checks against the exact same shared function the donut's own
   // sectors use — not a second, independently-duplicated notion of "what
-  // pattern this row should show".
-  const expectedFill = buildColorPatterns(
-    "spending-donut",
-    items.map((item) => ({ key: String(item.category_id), color: item.color }))
-  ).fillFor(String(items[1].category_id));
-  expect(swatch!.getAttribute("fill")).toBe(expectedFill);
-});
+  // color this row should show".
+  const resolved = resolveDonutColors(items.map((item) => ({ key: String(item.category_id), color: item.color })));
+  expect(resolved.get("1")).toBe("#2a78d6"); // first occurrence keeps the real color
+  expect(resolved.get("2")).toMatch(/^var\(--series-\d\)$/); // the collision borrows a solid ramp color
 
-// The "two same-colored categories get different sector fills at rest"
-// requirement (see buildColorPatterns in @/lib/colorPatterns, covered by its
-// own colorPatterns.test.ts) is verified end to end in a real browser
-// instead of here — jsdom's ResponsiveContainer reports a 0×0 box, so
-// Recharts never actually renders any <Pie> sectors in this environment to
-// begin with (see donut-chart-interaction.spec.ts's first test).
+  const iconA = rowA.querySelector("svg") as SVGElement | null;
+  const iconB = rowB.querySelector("svg") as SVGElement | null;
+  // jsdom normalizes a literal hex string to rgb(...) once it's parsed as a
+  // real CSS color value, but leaves an unresolved var(--x) reference as-is
+  // — compare A through the same normalization instead of the raw hex.
+  const probe = document.createElement("div");
+  probe.style.color = resolved.get("1")!;
+  expect(iconA?.style.color).toBe(probe.style.color);
+  expect(iconB?.style.color).toBe(resolved.get("2"));
+});
