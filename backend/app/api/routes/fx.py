@@ -1,11 +1,11 @@
 from decimal import Decimal, localcontext
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.models.fx import FXRate
-from app.schemas.fx import FXRateBatch, FXRateRead, NBPImport
+from app.schemas.fx import FXRateBatch, FXRateRead, FxRatePeriodOverview, NBPImport
 
 router = APIRouter(prefix="/fx-rates", tags=["fx"])
 
@@ -77,6 +77,36 @@ async def read_quote_status(session: AsyncSession = Depends(get_session)):
 async def read_fx_rate_overview(session: AsyncSession = Depends(get_session)):
     from app.services.quote_status_service import fx_rate_overview
     return await fx_rate_overview(session)
+
+
+@router.get('/overview/period', response_model=FxRatePeriodOverview)
+async def read_fx_rate_period_overview(
+    # Bounded the same way _resolve_bounds itself can handle (year:
+    # NBP's own history floor..a sane future cap; month: a real calendar
+    # month) — an out-of-range value here used to reach `date(year, month,
+    # ...)`/`calendar.monthrange` unguarded and blow up as an unhandled
+    # ValueError (FastAPI turns that into a 500), instead of the 422 an
+    # invalid *request* should get.
+    year: int | None = Query(default=None, ge=2002, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    session: AsyncSession = Depends(get_session),
+):
+    """Continuation of the overview above (see
+    docs/tasks/dashboard-fx-periods-sparklines.md) — a *separate* endpoint,
+    not a new query mode on GET /fx-rates/overview, so existing consumers
+    of that one keep their exact response shape. `year`/`month` are the
+    same params the Dashboard summary already takes; the period boundaries
+    themselves come from `_resolve_bounds`, never recomputed here.
+
+    Unlike the Dashboard summary route, a bare `month` with no `year` is
+    rejected outright rather than defaulting to the current year — this
+    card only ever sends them together (see DashboardPage's own year/month
+    state), so a lone month is always a malformed request, not a shorthand
+    worth supporting."""
+    if month is not None and year is None:
+        raise HTTPException(422, "month requires year")
+    from app.services.fx_period_overview_service import get_fx_period_overview
+    return await get_fx_period_overview(session, year, month)
 
 
 @router.post('/nbp/latest')
