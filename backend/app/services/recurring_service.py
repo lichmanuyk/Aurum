@@ -15,11 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.account import Account
 from app.models.category import Category
 from app.models.enums import CategoryKind, RecurringFrequency, TransactionType
 from app.models.recurring import RecurringTransaction
 from app.models.transaction import Transaction
-from app.schemas.recurring import RecurringTransactionCreate, RecurringTransactionRead, RecurringTransactionUpdate
+from app.schemas.recurring import RecurringPost, RecurringTransactionCreate, RecurringTransactionRead, RecurringTransactionUpdate
 
 _EAGER = (
     selectinload(RecurringTransaction.account),
@@ -155,17 +156,67 @@ async def delete_recurring(session: AsyncSession, recurring_id: int) -> None:
     await session.commit()
 
 
-async def post_recurring(session: AsyncSession, recurring_id: int, destination_amount=None) -> RecurringTransactionRead:
+async def post_recurring(session: AsyncSession, recurring_id: int, payload: RecurringPost | None = None) -> RecurringTransactionRead:
     """Creates a real Transaction from the template, dated today, and moves
-    last_posted_date forward — the only thing that advances the schedule."""
+    last_posted_date forward — the only thing that advances the schedule.
+
+    `payload.amount`/`account_id` are the *actual* payment for an expense
+    template only (see docs/tasks/recurring-variable-payments.md) — they
+    never change the template's own stored amount/account. `model_fields_set`
+    (not a plain `is None` check) distinguishes "field omitted" (keep the
+    template's value — the old bare-POST contract) from "field explicitly
+    null" (a malformed request, rejected outright)."""
     # Serialize competing clicks before checking the committed posting date.
     recurring = await _get_or_404(session, recurring_id, lock=True)
     today = date_.today()
-    if not recurring.is_active or _next_due_date(recurring) > today or recurring.last_posted_date == today:
-        raise HTTPException(409, "Template is inactive or not due yet")
+    # Three different reasons a POST can't proceed right now, each its own
+    # code (see docs/tasks/recurring-variable-payments.md). Checked in this
+    # order deliberately: once `last_posted_date == today`, `_next_due_date`
+    # is *always* already past today too (it advances from that same
+    # date), so ALREADY_POSTED must be checked before TEMPLATE_NOT_DUE or
+    # it would never be reached — exactly the "lost the response to an
+    # actually-successful post, retried" case the client most needs to
+    # tell apart, since only this one means something new actually
+    # happened server-side for it to reconcile.
+    if recurring.last_posted_date == today:
+        raise HTTPException(409, detail={"code": "ALREADY_POSTED"})
+    if not recurring.is_active:
+        raise HTTPException(409, detail={"code": "TEMPLATE_INACTIVE"})
+    if _next_due_date(recurring) > today:
+        raise HTTPException(409, detail={"code": "TEMPLATE_NOT_DUE"})
+
+    fields_set = payload.model_fields_set if payload else set()
+    destination_amount = payload.destination_amount if payload else None
+    amount_override = payload.amount if payload else None
+    account_override = payload.account_id if payload else None
+
+    if recurring.type != TransactionType.EXPENSE:
+        # Income/transfer keep today's exact prior behavior — an override
+        # sent for either is a rejected request, never a silently dropped one.
+        if "amount" in fields_set or "account_id" in fields_set:
+            raise HTTPException(422, "amount/account_id overrides are only valid for expense templates")
+    else:
+        if "amount" in fields_set and amount_override is None:
+            raise HTTPException(422, "amount cannot be null")
+        if "account_id" in fields_set and account_override is None:
+            raise HTTPException(422, "account_id cannot be null")
 
     fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes")}
     fields.update(date=today, destination_amount=destination_amount)
+
+    if recurring.type == TransactionType.EXPENSE and account_override is not None:
+        account = await session.get(Account, account_override)
+        if account is None or account.is_archived:
+            raise HTTPException(422, "Account not found or unavailable")
+        # The actual amount is in whatever account is actually picked — a
+        # currency change with no explicit amount would otherwise silently
+        # relabel the template's old number under a different currency.
+        if account.currency != recurring.account.currency and amount_override is None:
+            raise HTTPException(422, "amount is required when posting to a different-currency account")
+        fields["account_id"] = account_override
+    if recurring.type == TransactionType.EXPENSE and amount_override is not None:
+        fields["amount"] = amount_override
+
     await validate_transaction(session, fields)
     session.add(Transaction(**fields))
     recurring.last_posted_date = today

@@ -74,4 +74,14 @@ class RecurringTransactionRead(BaseModel):
 
 
 class RecurringPost(BaseModel):
+    """`amount`/`account_id` are the *actual* payment for an expense
+    template only (see docs/tasks/recurring-variable-payments.md) — the
+    template's own stored amount/account never change. Both stay optional
+    so an old bare POST (no body) keeps posting the template's own values
+    unchanged; an explicit `null` for either is rejected by the service
+    (via `model_fields_set`), not silently treated as "unset", so a caller
+    can never accidentally clear a required field."""
+
     destination_amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    account_id: int | None = None

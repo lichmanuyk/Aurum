@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { RecurringList } from "@/components/recurring/RecurringList";
 import { RecurringFormModal } from "@/components/recurring/RecurringFormModal";
+import { RecurringPaymentModal } from "@/components/recurring/RecurringPaymentModal";
 import { useDeleteRecurring, usePostRecurring, useRecurring } from "@/hooks/useRecurring";
 import { useTranslation } from "@/lib/i18n";
 import type { RecurringTransaction } from "@/types";
@@ -16,6 +17,7 @@ export function RecurringPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RecurringTransaction | null>(null);
+  const [payingItem, setPayingItem] = useState<RecurringTransaction | null>(null);
 
   function openCreateModal() {
     setEditingItem(null);
@@ -34,6 +36,14 @@ export function RecurringPage() {
   }
 
   function handlePost(item: RecurringTransaction) {
+    // Expense templates get a proper modal for the actual amount/account
+    // (see docs/tasks/recurring-variable-payments.md) — income/transfer
+    // keep their prior behavior untouched, including the cross-currency
+    // transfer's own window.prompt.
+    if (item.type === "expense") {
+      setPayingItem(item);
+      return;
+    }
     const crossCurrency = item.type === "transfer" && item.currency !== item.destination_currency;
     const amount = crossCurrency ? window.prompt(`${language === "ru" ? "Фактически зачислено" : "Actual amount received"} (${item.destination_currency})`) : undefined;
     if (crossCurrency && !amount) return;
@@ -67,6 +77,7 @@ export function RecurringPage() {
       </Card>
 
       <RecurringFormModal open={modalOpen} onClose={() => setModalOpen(false)} recurring={editingItem} />
+      <RecurringPaymentModal open={payingItem !== null} onClose={() => setPayingItem(null)} recurring={payingItem} />
     </div>
   );
 }

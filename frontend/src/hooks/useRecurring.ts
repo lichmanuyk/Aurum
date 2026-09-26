@@ -4,11 +4,15 @@ import {
   deleteRecurring,
   fetchRecurring,
   postRecurring,
+  type RecurringPostOverrides,
   updateRecurring,
 } from "@/api/recurring";
 import type { RecurringTransactionInput } from "@/types";
 
-function useInvalidateRecurring() {
+// Exported so a caller who lost a successful response (see
+// RecurringPaymentModal's own 409 handling) can pull in the exact same
+// refresh a normal onSuccess would have, without duplicating this list.
+export function useInvalidateRecurring() {
   const queryClient = useQueryClient();
   return (alsoInvalidateTransactions: boolean) => {
     queryClient.invalidateQueries({ queryKey: ["recurring"] });
@@ -60,7 +64,7 @@ export function useDeleteRecurring() {
 export function usePostRecurring() {
   const invalidate = useInvalidateRecurring();
   return useMutation({
-    mutationFn: ({ id, destination_amount }: { id: number; destination_amount?: string }) => postRecurring(id, destination_amount),
+    mutationFn: ({ id, ...overrides }: { id: number } & RecurringPostOverrides) => postRecurring(id, overrides),
     onSuccess: () => invalidate(true),
   });
 }
