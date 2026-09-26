@@ -95,7 +95,13 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
         ) : (
           <div ref={containerRef} className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center">
             {connectorPath && (
-              <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+              // overflow-visible: SVG clips its own content to its box by
+              // default. The routed path can — and, on a short list where
+              // the donut itself is the taller element, regularly does —
+              // detour slightly above/below this `h-full` box (by
+              // ROUTE_CLEARANCE_PX − CHART_MARGIN_PX) to get around the
+              // ring; without this, that corner silently disappears.
+              <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
                 <polyline
                   points={connectorPath.map((point) => `${point.x},${point.y}`).join(" ")}
                   fill="none"

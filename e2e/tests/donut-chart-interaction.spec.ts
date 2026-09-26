@@ -1,7 +1,12 @@
 import type { Locator } from "@playwright/test";
 import { test, expect } from "../fixtures";
 import { makeHolding } from "../../frontend/src/test/cryptoFixtures";
-import { segmentCrossesCircle } from "../../frontend/src/lib/sectorConnector";
+// sectorGeometry.ts, not sectorConnector.ts — the latter also imports
+// "react" for its hooks, which this e2e project's own node_modules doesn't
+// have (CI only runs `npm ci` in e2e/, never in frontend/ — see
+// .github/workflows). sectorGeometry.ts has zero runtime dependencies of
+// its own, by design, for exactly this reason.
+import { segmentCrossesCircle } from "../../frontend/src/lib/sectorGeometry";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
 
 // See docs/tasks/donut-chart-interaction.md: hovering a donut sector
@@ -221,76 +226,112 @@ test("five same-colored dashboard categories get five genuinely distinct solid f
 });
 
 test("the dashboard's routed connector reaches the real arc on both the near and far half, never crossing the donut itself, with an absent line and no overflow at 375px", async ({ page, request }) => {
-  const accountId = await getDefaultAccountId(request);
-  // Three unequal shares (not just two) so one of them lands on the *far*
-  // half of the donut (away from the list, where the routed line has to
-  // detour around the ring rather than cut a near-straight shot) and
-  // another lands on the near half — see docs/tasks/
-  // dashboard-donut-colors-routing.md's "особенно дальняя от списка
-  // половина" acceptance point.
-  const far = (await (await request.post("/api/categories", { data: { name: "Connector Far", kind: "expense", color: "#2a78d6" } })).json());
-  const near = (await (await request.post("/api/categories", { data: { name: "Connector Near", kind: "expense", color: "#eb6834" } })).json());
-  const rest = (await (await request.post("/api/categories", { data: { name: "Connector Rest", kind: "expense", color: "#1baf7a" } })).json());
-  await createTransaction(request, { account_id: accountId, category_id: far.id, type: "expense", amount: "45.00", description: "connector-far", date: "2024-06-01" });
-  await createTransaction(request, { account_id: accountId, category_id: near.id, type: "expense", amount: "10.00", description: "connector-near", date: "2024-06-01" });
-  await createTransaction(request, { account_id: accountId, category_id: rest.id, type: "expense", amount: "45.00", description: "connector-rest", date: "2024-06-01" });
+  // Isolated the same way as "five same-colored..." above — this test's own
+  // three categories have to be the *only* spending on the dashboard, or
+  // another spec's leftover categories/transactions in this shared-DB run
+  // shift the proportions (and therefore the angles) enough that "Far"
+  // might not land on the far side any more, silently making the detour
+  // assertion below meaningless instead of failing loudly.
+  const snapshot = await (await request.get("/api/backup/export")).json();
+  const empty = Object.fromEntries(Object.entries(snapshot).map(([key, value]: [string, unknown]) =>
+    [key, Array.isArray(value) && !["accounts", "categories"].includes(key) ? [] : value]));
+  expect((await request.post("/api/backup/import", { data: empty })).ok()).toBeTruthy();
+  try {
+    const accountId = await getDefaultAccountId(request);
+    // Three unequal shares (not just two) so one of them lands on the *far*
+    // half of the donut (away from the list, where the routed line has to
+    // detour around the ring rather than cut a near-straight shot) and
+    // another lands on the near half — see docs/tasks/
+    // dashboard-donut-colors-routing.md's "особенно дальняя от списка
+    // половина" acceptance point.
+    const far = (await (await request.post("/api/categories", { data: { name: "Connector Far", kind: "expense", color: "#2a78d6" } })).json());
+    const near = (await (await request.post("/api/categories", { data: { name: "Connector Near", kind: "expense", color: "#eb6834" } })).json());
+    const rest = (await (await request.post("/api/categories", { data: { name: "Connector Rest", kind: "expense", color: "#1baf7a" } })).json());
+    await createTransaction(request, { account_id: accountId, category_id: far.id, type: "expense", amount: "45.00", description: "connector-far", date: "2024-06-01" });
+    await createTransaction(request, { account_id: accountId, category_id: near.id, type: "expense", amount: "10.00", description: "connector-near", date: "2024-06-01" });
+    await createTransaction(request, { account_id: accountId, category_id: rest.id, type: "expense", amount: "45.00", description: "connector-rest", date: "2024-06-01" });
 
-  await page.goto("/");
-  const card = page.locator("div.rounded-xl", { has: page.getByText("Расходы по категориям", { exact: true }) });
-  const chartWrapper = card.locator(".recharts-wrapper");
+    await page.goto("/");
+    const card = page.locator("div.rounded-xl", { has: page.getByText("Расходы по категориям", { exact: true }) });
+    const chartWrapper = card.locator(".recharts-wrapper");
+    // Three categories is a genuinely short list — comfortably shorter than
+    // the donut itself at this viewport, exactly the shape that clips a
+    // detour corner (which pokes a few pixels above/below the chart's own
+    // box) unless the connector's own <svg> explicitly opts out of the
+    // clipping SVG applies to its content by default.
+    async function checkRoutedConnector(name: string) {
+      const row = card.locator("ul").getByRole("button", { name: new RegExp(`^${name}\\b`) });
+      const sector = chartWrapper.getByRole("button", { name: new RegExp(`^${name},`) });
+      await row.hover();
 
-  async function checkRoutedConnector(name: string) {
-    const row = card.locator("ul").getByRole("button", { name: new RegExp(`^${name}\\b`) });
-    const sector = chartWrapper.getByRole("button", { name: new RegExp(`^${name},`) });
-    await row.hover();
+      const polyline = card.locator("svg polyline");
+      await expect(polyline).toBeVisible();
+      await expect(card.locator("svg.absolute.inset-0")).toHaveCSS("overflow", "visible");
 
-    const polyline = card.locator("svg polyline");
-    await expect(polyline).toBeVisible();
+      const [points, rowBox, chartBox, containerBox] = await Promise.all([
+        connectorPolylinePoints(card),
+        row.boundingBox(),
+        chartWrapper.boundingBox(),
+        card.locator("div.relative").first().boundingBox(),
+      ]);
+      expect(rowBox).not.toBeNull();
+      expect(chartBox).not.toBeNull();
+      expect(containerBox).not.toBeNull();
 
-    const [points, rowBox, chartBox] = await Promise.all([connectorPolylinePoints(card), row.boundingBox(), chartWrapper.boundingBox()]);
-    expect(rowBox).not.toBeNull();
-    expect(chartBox).not.toBeNull();
+      // Equal first horizontal run — same length regardless of which row or
+      // which side of the donut it points to.
+      expect(points[0].y).toBeCloseTo(rowBox!.y + rowBox!.height / 2, 0);
+      expect(points[0].x - points[1].x).toBeCloseTo(16, 0);
 
-    // Equal first horizontal run — same length regardless of which row or
-    // which side of the donut it points to.
-    expect(points[0].y).toBeCloseTo(rowBox!.y + rowBox!.height / 2, 0);
-    expect(points[0].x - points[1].x).toBeCloseTo(16, 0);
+      // The endpoint lands inside the specific active sector's own rendered
+      // path — the real arc, not just anywhere in the chart's outer square.
+      await expectPointInsideBox(points[points.length - 1], sector);
 
-    // The endpoint lands inside the specific active sector's own rendered
-    // path — the real arc, not just anywhere in the chart's outer square.
-    await expectPointInsideBox(points[points.length - 1], sector);
+      // Every segment of the *actual rendered* route — read from real layout,
+      // not synthetic test coordinates — stays clear of the donut itself.
+      // margin=5 mirrors CHART_MARGIN_PX in sectorGeometry.ts (Recharts' own
+      // default chart margin, unrelated to this task and unchanged by it).
+      const margin = 5;
+      const center = { x: chartBox!.x + chartBox!.width / 2, y: chartBox!.y + chartBox!.height / 2 };
+      const outerRadius = Math.min(chartBox!.width - 2 * margin, chartBox!.height - 2 * margin) / 2;
+      for (let i = 0; i < points.length - 1; i++) {
+        expect(segmentCrossesCircle(points[i], points[i + 1], center, outerRadius)).toBe(false);
+      }
 
-    // Every segment of the *actual rendered* route — read from real layout,
-    // not synthetic test coordinates — stays clear of the donut itself.
-    // margin=5 mirrors CHART_MARGIN_PX in sectorConnector.ts (Recharts' own
-    // default chart margin, unrelated to this task and unchanged by it).
-    const margin = 5;
-    const center = { x: chartBox!.x + chartBox!.width / 2, y: chartBox!.y + chartBox!.height / 2 };
-    const outerRadius = Math.min(chartBox!.width - 2 * margin, chartBox!.height - 2 * margin) / 2;
-    for (let i = 0; i < points.length - 1; i++) {
-      expect(segmentCrossesCircle(points[i], points[i + 1], center, outerRadius)).toBe(false);
+      // The detour route (far side) actually pokes above/below this short
+      // list's own container box — the exact shape that clips without
+      // overflow-visible on the connector's <svg> above. Confirms this test
+      // is exercising the real bug, not just a case where clipping was never
+      // in play to begin with.
+      if (points.length > 4) {
+        const detouredAboveOrBelow = points.some((point) => point.y < containerBox!.y - 1 || point.y > containerBox!.y + containerBox!.height + 1);
+        expect(detouredAboveOrBelow).toBe(true);
+      }
+
+      await page.mouse.move(0, 0);
     }
 
-    await page.mouse.move(0, 0);
+    await checkRoutedConnector("Connector Far");
+    await checkRoutedConnector("Connector Near");
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+
+    await page.setViewportSize({ width: 375, height: 900 });
+    await card.locator("ul").getByRole("button", { name: /Connector Far/ }).hover();
+    await expect(card.locator("svg polyline")).toHaveCount(0); // stacked layout — sync highlight only, no line
+    const narrowOverflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(narrowOverflow.scrollWidth).toBeLessThanOrEqual(narrowOverflow.clientWidth);
+  } finally {
+    const restore = await request.post("/api/backup/import", { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
   }
-
-  await checkRoutedConnector("Connector Far");
-  await checkRoutedConnector("Connector Near");
-
-  const overflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
-
-  await page.setViewportSize({ width: 375, height: 900 });
-  await card.locator("ul").getByRole("button", { name: /Connector Far/ }).hover();
-  await expect(card.locator("svg polyline")).toHaveCount(0); // stacked layout — sync highlight only, no line
-  const narrowOverflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(narrowOverflow.scrollWidth).toBeLessThanOrEqual(narrowOverflow.clientWidth);
 });
 
 test("a real touch tap pins/unpins a row without leaving artificial hover or dimming behind", async ({ browser, request }) => {

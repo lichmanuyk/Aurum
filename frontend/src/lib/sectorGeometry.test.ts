@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { buildDonutRoutePoints, outerArcPoint, sectorMidAngleDeg, segmentCrossesCircle, type Point } from "./sectorConnector";
+import { buildDonutRoutePoints, outerArcPoint, sectorMidAngleDeg, segmentCrossesCircle, type Point } from "./sectorGeometry";
 
 it("splits unequal shares proportionally, with a padding gap only before the second sector", () => {
   // 70/30 split, paddingAngle=2 (SpendingByCategoryCard's own value): the
