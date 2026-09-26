@@ -118,7 +118,7 @@ export function DashboardPage() {
         />
       </div>
 
-      <FxRateOverviewCard />
+      <FxRateOverviewCard year={year} month={month} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.4fr_1fr]">
         <SpendingByCategoryCard items={data?.spending_by_category ?? []} />

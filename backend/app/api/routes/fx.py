@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_session
 from app.models.fx import FXRate
-from app.schemas.fx import FXRateBatch, FXRateRead, NBPImport
+from app.schemas.fx import FXRateBatch, FXRateRead, FxRatePeriodOverview, NBPImport
 
 router = APIRouter(prefix="/fx-rates", tags=["fx"])
 
@@ -77,6 +77,20 @@ async def read_quote_status(session: AsyncSession = Depends(get_session)):
 async def read_fx_rate_overview(session: AsyncSession = Depends(get_session)):
     from app.services.quote_status_service import fx_rate_overview
     return await fx_rate_overview(session)
+
+
+@router.get('/overview/period', response_model=FxRatePeriodOverview)
+async def read_fx_rate_period_overview(
+    year: int | None = None, month: int | None = None, session: AsyncSession = Depends(get_session)
+):
+    """Continuation of the overview above (see
+    docs/tasks/dashboard-fx-periods-sparklines.md) — a *separate* endpoint,
+    not a new query mode on GET /fx-rates/overview, so existing consumers
+    of that one keep their exact response shape. `year`/`month` are the
+    same params the Dashboard summary already takes; the period boundaries
+    themselves come from `_resolve_bounds`, never recomputed here."""
+    from app.services.fx_period_overview_service import get_fx_period_overview
+    return await get_fx_period_overview(session, year, month)
 
 
 @router.post('/nbp/latest')

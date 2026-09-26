@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.money import Currency
 
@@ -25,6 +26,52 @@ class FXRateRead(FXRateInput):
 
 class FXRateBatch(BaseModel):
     items: list[FXRateInput] = Field(min_length=1, max_length=10000)
+
+
+class FxPeriodLeg(BaseModel):
+    """One currency's own PLN leg contributing to a pair's value — a direct
+    pair (e.g. USD/PLN) has exactly one; a cross pair (USD/BYN, USD/RUB) has
+    two, each with its *own* actual publication date/source, which can (and
+    routinely does) differ between the two legs — see
+    docs/tasks/dashboard-fx-periods-sparklines.md."""
+
+    currency: str
+    rate_date: date
+    source: str
+
+
+class FxPeriodSeriesPoint(BaseModel):
+    date: date
+    # null = no official rate resolved for this day (even after the usual
+    # 7-day carry-forward) — never a fabricated 0/1:1, and never connected
+    # across in the chart.
+    value: Decimal | None
+
+
+class FxPeriodPair(BaseModel):
+    base_currency: str
+    quote_currency: str
+    # The headline "1 base = value quote" figure — null when unavailable
+    # (see unavailable_reason), never a guess.
+    value: Decimal | None
+    unavailable_reason: Literal["fx_rate_missing", "incomplete_coverage"] | None
+    # Only populated for a genuinely available `value` in "latest" mode —
+    # an average's "date" would misrepresent one of many days it covers, so
+    # legs stay empty there; the period/label already say "average"/"ytd".
+    legs: list[FxPeriodLeg]
+    series: list[FxPeriodSeriesPoint]
+    coverage_expected_days: int
+    coverage_available_days: int
+
+
+class FxRatePeriodOverview(BaseModel):
+    mode: Literal["latest", "average"]
+    label: Literal["latest", "average", "ytd"]
+    start_date: date | None
+    end_date: date
+    series_start: date
+    series_end: date
+    items: list[FxPeriodPair]
 
 
 class NBPImport(BaseModel):
