@@ -17,6 +17,15 @@ export function deleteRecurring(id: number) {
   return api.delete<void>(`/recurring/${id}`);
 }
 
-export function postRecurring(id: number, destination_amount?: string) {
-  return api.post<RecurringTransaction>(`/recurring/${id}/post`, { destination_amount });
+export interface RecurringPostOverrides {
+  destination_amount?: string;
+  // Expense-template-only actual payment override (see
+  // docs/tasks/recurring-variable-payments.md) — the template's own
+  // stored amount/account never change, only what gets posted this once.
+  amount?: string;
+  account_id?: number;
+}
+
+export function postRecurring(id: number, overrides: RecurringPostOverrides = {}) {
+  return api.post<RecurringTransaction>(`/recurring/${id}/post`, overrides);
 }

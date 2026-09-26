@@ -43,4 +43,4 @@ async def delete_recurring_route(recurring_id: int, session: AsyncSession = Depe
 async def post_recurring_route(
     recurring_id: int, payload: RecurringPost | None = None, session: AsyncSession = Depends(get_session)
 ) -> RecurringTransactionRead:
-    return await post_recurring(session, recurring_id, payload.destination_amount if payload else None)
+    return await post_recurring(session, recurring_id, payload)

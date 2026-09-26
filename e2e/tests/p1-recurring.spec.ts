@@ -31,6 +31,14 @@ test('a monthly expense posts once and remains scheduled for the next month', as
     const post = row.getByRole('button', { name: /Провести|Post/ });
     await expect(post).toBeEnabled();
     await post.click();
+    // Expense templates open a small payment modal instead of posting
+    // immediately (see docs/tasks/recurring-variable-payments.md) —
+    // confirming with the template's own default amount/account
+    // reproduces the exact same balance this test already asserts on.
+    const modal = page.getByRole('dialog').filter({ hasText: 'P1 monthly subscription' });
+    await expect(modal).toBeVisible();
+    await modal.getByRole('button', { name: /Подтвердить оплату|Confirm payment/ }).click();
+    await expect(modal).toBeHidden();
     await expect.poll(async () => {
       const rules = await (await requestWithRateLimit(request, '/api/recurring')).json();
       return rules.find((item: { description: string }) => item.description === 'P1 monthly subscription')?.is_due;

@@ -4,6 +4,7 @@ import {
   deleteRecurring,
   fetchRecurring,
   postRecurring,
+  type RecurringPostOverrides,
   updateRecurring,
 } from "@/api/recurring";
 import type { RecurringTransactionInput } from "@/types";
@@ -60,7 +61,7 @@ export function useDeleteRecurring() {
 export function usePostRecurring() {
   const invalidate = useInvalidateRecurring();
   return useMutation({
-    mutationFn: ({ id, destination_amount }: { id: number; destination_amount?: string }) => postRecurring(id, destination_amount),
+    mutationFn: ({ id, ...overrides }: { id: number } & RecurringPostOverrides) => postRecurring(id, overrides),
     onSuccess: () => invalidate(true),
   });
 }
