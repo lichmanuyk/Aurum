@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { dashboardLinkFor, parseDashboardPeriodParams, periodEndDate, visibleMonthCount } from "./dashboardPeriod";
+import { dashboardLinkFor, parseDashboardPeriodParams, parseEndDateParam, visibleMonthCount } from "./dashboardPeriod";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -10,10 +10,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it("builds an all-time link with no year/month, a whole-year link with no month, and a specific-month link unchanged", () => {
-  expect(dashboardLinkFor({ year: null, month: null })).toBe("/transactions?period=all");
-  expect(dashboardLinkFor({ year: 2024, month: null })).toBe("/transactions?year=2024");
-  expect(dashboardLinkFor({ year: 2018, month: 3 })).toBe("/transactions?year=2018&month=3");
+it("builds an all-time link with no year/month, a whole-year link with no month, and a specific-month link — every mode carrying the server's own end_date", () => {
+  expect(dashboardLinkFor({ year: null, month: null }, "2026-09-25")).toBe("/transactions?period=all&end_date=2026-09-25");
+  expect(dashboardLinkFor({ year: 2024, month: null }, "2026-09-25")).toBe("/transactions?year=2024&end_date=2026-09-25");
+  expect(dashboardLinkFor({ year: 2018, month: 3 }, "2018-03-31")).toBe("/transactions?year=2018&month=3&end_date=2018-03-31");
 });
 
 it("parses ?period=all as all time regardless of any year/month also present", () => {
@@ -61,14 +61,13 @@ it("visibleMonthCount stops at the current month for the current year, and is 12
   expect(visibleMonthCount(2030)).toBe(12);
 });
 
-it("periodEndDate clamps a still-open period (all time, the current year, the current month) to today", () => {
-  expect(periodEndDate({ year: null, month: null })).toBe("2026-09-25");
-  expect(periodEndDate({ year: 2026, month: null })).toBe("2026-09-25");
-  expect(periodEndDate({ year: 2026, month: 9 })).toBe("2026-09-25");
+it("parseEndDateParam reads the server-resolved boundary a dashboardLinkFor link carries, verbatim", () => {
+  expect(parseEndDateParam(new URLSearchParams("end_date=2026-09-25"))).toBe("2026-09-25");
+  expect(parseEndDateParam(new URLSearchParams("year=2018&month=3&end_date=2018-03-31"))).toBe("2018-03-31");
 });
 
-it("periodEndDate leaves a period that's already fully in the past at its own natural calendar end", () => {
-  expect(periodEndDate({ year: 2025, month: null })).toBe("2025-12-31");
-  expect(periodEndDate({ year: 2025, month: 12 })).toBe("2025-12-31");
-  expect(periodEndDate({ year: 2026, month: 1 })).toBe("2026-01-31"); // a past month within the current year
+it("parseEndDateParam is absent for an old link or a bare /transactions — never a client-guessed date", () => {
+  expect(parseEndDateParam(new URLSearchParams("year=2018&month=3"))).toBeNull();
+  expect(parseEndDateParam(new URLSearchParams(""))).toBeNull();
+  expect(parseEndDateParam(new URLSearchParams("end_date=not-a-date"))).toBeNull();
 });

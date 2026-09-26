@@ -93,6 +93,8 @@ async def get_dashboard_summary(session: AsyncSession, year: int | None, month: 
         reporting_currency=fx.currency,
         year=year,
         month=month,
+        start_date=start,
+        end_date=end,
         real_income=real_income,
         spent=spent,
         net=real_income - spent,

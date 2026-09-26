@@ -15,7 +15,7 @@ import { useTags } from "@/hooks/useTags";
 import type { TransactionSort } from "@/api/transactions";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
-import { parseDashboardPeriodParams, periodEndDate, visibleMonthCount } from "@/lib/dashboardPeriod";
+import { parseDashboardPeriodParams, parseEndDateParam, visibleMonthCount } from "@/lib/dashboardPeriod";
 import type { Transaction, TransactionType } from "@/types";
 
 const PAGE_SIZE = 20;
@@ -38,6 +38,13 @@ export function TransactionsPage() {
   const [month, setMonth] = useState<number | null>(
     () => parseDashboardPeriodParams(searchParams, { year: now.getFullYear(), month: now.getMonth() + 1 }).month
   );
+  // The server-resolved boundary a Dashboard link carried (see
+  // lib/dashboardPeriod.ts) — reused verbatim, never recomputed from the
+  // browser's own clock (see docs/tasks/dashboard-periods.md's review
+  // notes). Cleared the moment the user picks a different period by hand:
+  // a boundary tied to the period it was resolved for stops applying once
+  // that period itself changes.
+  const [endDate, setEndDate] = useState<string | null>(() => parseEndDateParam(searchParams));
   const [type, setType] = useState<TransactionType | "">("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [tagId, setTagId] = useState<string>("");
@@ -70,12 +77,11 @@ export function TransactionsPage() {
     // this axis", same as undefined — see api/transactions.ts.
     year: isSearching ? undefined : year ?? undefined,
     month: isSearching ? undefined : month ?? undefined,
-    // Same "ends today" clamp the Dashboard's own totals apply — otherwise
-    // a future-dated transaction the Dashboard excludes would still show
-    // here when landing via its "all transactions" link (see
-    // docs/tasks/dashboard-periods.md's review notes). A search already
-    // spans every period on purpose, so it stays unclamped too.
-    end_date: isSearching ? undefined : periodEndDate({ year, month }),
+    // Only present when it came from a Dashboard link (see `endDate`
+    // above) — an old link or manual browsing here was never clamped and
+    // stays that way. A search already spans every period on purpose, so
+    // it stays unclamped too.
+    end_date: isSearching ? undefined : endDate ?? undefined,
     search: isSearching ? search : undefined,
     type: type || undefined,
     category_id: categoryId ? Number(categoryId) : undefined,
@@ -122,6 +128,7 @@ export function TransactionsPage() {
     const date = new Date(`${transaction.date}T00:00:00`);
     setYear(date.getFullYear());
     setMonth(date.getMonth() + 1);
+    setEndDate(null);
     setSearchInput("");
     setSearch("");
     setPage(1);
@@ -136,6 +143,7 @@ export function TransactionsPage() {
   function handlePeriodModeChange(value: PeriodMode) {
     setYear(value === "all" ? null : now.getFullYear());
     setMonth(null);
+    setEndDate(null); // the linked boundary was for the old period, not this one
     setPage(1);
   }
 
@@ -144,6 +152,7 @@ export function TransactionsPage() {
     // Same "still on a now-future month" guard as the Dashboard — falls
     // back to "every month" instead of keeping an invalid selection.
     setMonth((current) => (current !== null && current > visibleMonthCount(newYear) ? null : current));
+    setEndDate(null);
     setPage(1);
   }
 
@@ -161,6 +170,7 @@ export function TransactionsPage() {
                   allowAll
                   onChange={(value) => {
                     setMonth(value);
+                    setEndDate(null);
                     setPage(1);
                   }}
                 />

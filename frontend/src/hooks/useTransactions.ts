@@ -33,10 +33,11 @@ function useInvalidateAfterTransactionChange() {
   };
 }
 
-export function useTransactions(filters: TransactionFilters) {
+export function useTransactions(filters: TransactionFilters, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["transactions", filters],
     queryFn: () => fetchTransactions(filters),
+    enabled: options?.enabled,
   });
 }
 

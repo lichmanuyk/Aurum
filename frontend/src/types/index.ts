@@ -207,6 +207,11 @@ export interface DashboardSummary {
   // lib/dashboardPeriod.ts.
   year: number | null;
   month: number | null;
+  // The actual range these totals were computed over, resolved by the
+  // server — `end_date` is the server's own "today", not the browser's
+  // (see lib/dashboardPeriod.ts's parseEndDateParam/dashboardLinkFor).
+  start_date: string | null;
+  end_date: string;
   real_income: string;
   spent: string;
   net: string;

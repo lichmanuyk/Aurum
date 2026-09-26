@@ -71,10 +71,10 @@ test("all three period modes' \"all transactions\" link opens the matching set o
   // All time.
   await page.goto("/");
   await page.getByRole("link", { name: "Все транзакции" }).click();
-  await expect(page).toHaveURL(/\/transactions\?period=all/);
+  await expect(page).toHaveURL(/\/transactions\?period=all&end_date=\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByText("dp-link-may-a")).toBeVisible();
   await page.reload();
-  await expect(page).toHaveURL(/\/transactions\?period=all/);
+  await expect(page).toHaveURL(/\/transactions\?period=all&end_date=\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByText("dp-link-may-a")).toBeVisible();
   await expect(page.getByRole("button", { name: "Всё время", exact: true })).toHaveClass(/bg-surface-2/);
 
@@ -85,11 +85,11 @@ test("all three period modes' \"all transactions\" link opens the matching set o
   await page.getByRole("button", { name: /^\d{4}$/ }).first().click();
   await page.getByRole("option", { name: "2019" }).click();
   await page.getByRole("link", { name: "Все транзакции" }).click();
-  await expect(page).toHaveURL(/\/transactions\?year=2019$/);
+  await expect(page).toHaveURL(/\/transactions\?year=2019&end_date=\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByText("dp-link-may-a")).toBeVisible();
   await expect(page.getByText("dp-link-may-b")).toBeVisible();
   await page.reload();
-  await expect(page).toHaveURL(/\/transactions\?year=2019$/);
+  await expect(page).toHaveURL(/\/transactions\?year=2019&end_date=\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByRole("button", { name: "Все месяцы", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("dp-link-may-a")).toBeVisible();
 
@@ -100,7 +100,7 @@ test("all three period modes' \"all transactions\" link opens the matching set o
   await page.getByRole("option", { name: "2019" }).click();
   await page.getByRole("button", { name: "Май", exact: true }).click();
   await page.getByRole("link", { name: "Все транзакции" }).click();
-  await expect(page).toHaveURL(/\/transactions\?year=2019&month=5/);
+  await expect(page).toHaveURL(/\/transactions\?year=2019&month=5&end_date=\d{4}-\d{2}-\d{2}$/);
   await expect(page.getByText("dp-link-may-a")).toBeVisible();
   await expect(page.getByText("dp-link-may-b")).toBeVisible();
 
@@ -156,7 +156,7 @@ test("a future-dated transaction within the current year never shows under \"Г�
   await expect(recentCard.getByText("dp-year-future")).toHaveCount(0);
 
   await page.getByRole("link", { name: "Все транзакции" }).click();
-  await expect(page).toHaveURL(new RegExp(`/transactions\\?year=${year}$`));
+  await expect(page).toHaveURL(new RegExp(`/transactions\\?year=${year}&end_date=\\d{4}-\\d{2}-\\d{2}$`));
   await expect(page.getByText("dp-year-past")).toBeVisible();
   await expect(page.getByText("dp-year-future")).toHaveCount(0);
 });
@@ -190,6 +190,87 @@ test("a future-dated transaction later in the current month never shows in the c
   await expect(page).toHaveURL(new RegExp(`/transactions\\?year=${year}&month=${month}`));
   await expect(page.getByText("dp-month-past")).toBeVisible();
   await expect(page.getByText("dp-month-future")).toHaveCount(0);
+});
+
+test("a boundary transaction is included/excluded consistently everywhere even when the browser's own clock/timezone disagrees with the server's", async ({ request, browser }) => {
+  // This is the one test in the file dating a fixture exactly on "today"
+  // — every other test here uses a safely past/far-future date — so
+  // unlike its siblings it must clean up after itself, or a `today`-dated
+  // leftover income would throw off any *other* suite's own same-day
+  // total (e.g. zz-multicurrency.spec.ts's cash-flow-for-today check).
+  const snapshot = await (await request.get("/api/backup/export")).json();
+  try {
+    // The server (not the browser) resolves "today" for the boundary —
+    // see docs/tasks/dashboard-periods.md's review notes on the
+    // client/server timezone mismatch this test guards against. Read it
+    // from the API instead of assuming any particular date, so this test
+    // is correct regardless of which real day it happens to run on.
+    const before = await (await request.get("/api/dashboard/summary", { params: { period: "all" } })).json();
+    const serverEndDate: string = before.end_date;
+    const dayAfter = new Date(`${serverEndDate}T00:00:00Z`);
+    dayAfter.setUTCDate(dayAfter.getUTCDate() + 1);
+    const dayAfterIso = dayAfter.toISOString().slice(0, 10);
+
+    const accountId = await getDefaultAccountId(request);
+    const salaryId = await getCategoryId(request, "Salary");
+    await createTransaction(request, {
+      account_id: accountId, category_id: salaryId, type: "income",
+      amount: "111.00", description: "dp-boundary-included", date: serverEndDate,
+    });
+    await createTransaction(request, {
+      account_id: accountId, category_id: salaryId, type: "income",
+      amount: "222.00", description: "dp-boundary-excluded", date: dayAfterIso,
+    });
+
+    // A delta against `before`, not an absolute figure — this file's
+    // other tests never isolate their own fixtures from each other (a
+    // shared DB across the whole run), so "Всё время" already carries
+    // prior totals by the time this test runs.
+    const after = await (await request.get("/api/dashboard/summary", { params: { period: "all" } })).json();
+    expect(Number(after.real_income) - Number(before.real_income)).toBe(111);
+
+    // A dedicated context (timezoneId is context-creation-time-only in
+    // Playwright, unlike the clock) so only this test's page believes
+    // it's already `dayAfter` in Europe/Warsaw local time, at a moment
+    // (23:30 UTC on serverEndDate) when Warsaw's own wall clock
+    // (UTC+1/+2) has already rolled over to the next day while the
+    // server is still on serverEndDate — exactly the mismatch reported.
+    // If the fix worked, the browser's own (wrong, from the server's
+    // perspective) notion of "today" never enters the boundary decision
+    // at all. A raw browser.newContext() doesn't inherit
+    // playwright.config.ts's own `use` block (that's only applied to the
+    // fixture-provided `page`), so baseURL and the no-auth-modal storage
+    // flag are repeated here.
+    const baseURL = process.env.AURUM_E2E_BASE_URL ?? "http://localhost:3100";
+    const context = await browser.newContext({
+      timezoneId: "Europe/Warsaw",
+      baseURL,
+      storageState: { cookies: [], origins: [{ origin: new URL(baseURL).origin, localStorage: [{ name: "aurum:noAuthAcknowledged", value: "1" }] }] },
+    });
+    const page = await context.newPage();
+    await page.route("**/api/fx-rates/nbp/latest", (route) => route.fulfill({ json: { saved: 0, absent_currencies: [] } }));
+    await page.clock.install({ time: new Date(`${serverEndDate}T23:30:00Z`) });
+
+    try {
+      await page.goto("/");
+      const recentCard = page.locator("div.rounded-xl", { has: page.getByText("Последние транзакции", { exact: true }) });
+      await expect(recentCard.getByText("dp-boundary-included")).toBeVisible();
+      await expect(recentCard.getByText("dp-boundary-excluded")).toHaveCount(0);
+
+      await page.getByRole("link", { name: "Все транзакции" }).click();
+      await expect(page.getByText("dp-boundary-included")).toBeVisible();
+      await expect(page.getByText("dp-boundary-excluded")).toHaveCount(0);
+
+      await page.reload();
+      await expect(page.getByText("dp-boundary-included")).toBeVisible();
+      await expect(page.getByText("dp-boundary-excluded")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  } finally {
+    const restore = await request.post("/api/backup/import", { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
 });
 
 test("period pills and month/year pickers work on a narrow (phone-width) viewport with a real keyboard", async ({ page, request }) => {
