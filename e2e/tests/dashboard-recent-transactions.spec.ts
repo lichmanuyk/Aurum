@@ -28,6 +28,9 @@ test("Recent Transactions on Dashboard only shows the selected month", async ({ 
   });
 
   await page.goto("/");
+  // Fresh open defaults to "Всё время" — switch to "Год" mode first to
+  // reveal the month/year pickers at all (see docs/tasks/dashboard-periods.md).
+  await page.getByRole("button", { name: "Год", exact: true }).click();
   await page.getByRole("button", { name: /^\d{4}$/ }).first().click();
   await page.getByRole("option", { name: "2015" }).click();
   await page.getByRole("button", { name: "Авг", exact: true }).click();

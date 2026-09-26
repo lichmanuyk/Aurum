@@ -19,6 +19,9 @@ test("Dashboard's All transactions link opens Transactions on the same month", a
   });
 
   await page.goto("/");
+  // Fresh open defaults to "Всё время" — switch to "Год" mode first to
+  // reveal the month/year pickers at all (see docs/tasks/dashboard-periods.md).
+  await page.getByRole("button", { name: "Год", exact: true }).click();
   await page.getByRole("button", { name: /^\d{4}$/ }).first().click();
   await page.getByRole("option", { name: "2018" }).click();
   await page.getByRole("button", { name: "Мар", exact: true }).click();

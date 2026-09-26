@@ -4,32 +4,43 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
+import { dashboardLinkFor, type DashboardPeriod } from "@/lib/dashboardPeriod";
 import { useTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
 
-interface RecentTransactionsCardProps {
-  year: number;
-  month: number;
+interface RecentTransactionsCardProps extends DashboardPeriod {
+  // The Dashboard's own DashboardSummary.end_date — the server's "today",
+  // not the browser's (see docs/tasks/dashboard-periods.md's review notes
+  // on why this can't be computed client-side). `null` while the summary
+  // hasn't loaded yet; the query below waits for it rather than firing
+  // once unclamped and again once the real boundary arrives.
+  endDate: string | null;
 }
 
-export function RecentTransactionsCard({ year, month }: RecentTransactionsCardProps) {
+export function RecentTransactionsCard({ year, month, endDate }: RecentTransactionsCardProps) {
   const { t } = useTranslation();
-  const { data, isLoading } = useTransactions({ year, month, page: 1, page_size: 6 });
+  const ready = endDate !== null;
+  const { data, isLoading } = useTransactions(
+    { year: year ?? undefined, month: month ?? undefined, end_date: endDate ?? undefined, page: 1, page_size: 6 },
+    { enabled: ready }
+  );
   const { data: categories } = useCategories();
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("dashboard.recentTransactionsTitle")}</CardTitle>
-        <Link
-          to={`/transactions?year=${year}&month=${month}`}
-          className="text-xs font-medium text-series-1 hover:underline"
-        >
-          {t("dashboard.allTransactionsLink")}
-        </Link>
+        {endDate !== null && (
+          <Link
+            to={dashboardLinkFor({ year, month }, endDate)}
+            className="text-xs font-medium text-series-1 hover:underline"
+          >
+            {t("dashboard.allTransactionsLink")}
+          </Link>
+        )}
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {!ready || isLoading ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
         ) : !data?.items.length ? (
           <p className="py-10 text-center text-sm text-text-muted">{t("dashboard.noTransactionsYet")}</p>

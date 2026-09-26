@@ -22,7 +22,11 @@ test("switching the Dashboard year picker changes the displayed income", async (
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Авг", exact: true }).click();
+  // Fresh open defaults to "Всё время" (which would already show the 2017
+  // income) — switch to "Год" mode first, landing on the current year with
+  // no matching data, so switching the year picker is what's actually
+  // exercised below.
+  await page.getByRole("button", { name: "Год", exact: true }).click();
 
   const realIncomeValue = page.locator('xpath=//p[text()="Реальный доход"]/following-sibling::p[1]');
   await expect(realIncomeValue).not.toContainText("999"); // fresh stack: nothing in the current year yet

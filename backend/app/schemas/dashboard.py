@@ -1,3 +1,4 @@
+from datetime import date as date_
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -31,8 +32,19 @@ class CategoryBreakdownItem(BaseModel):
 class DashboardSummary(BaseModel):
     fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
     reporting_currency: str
-    year: int
-    month: int
+    # None means "all time" (year) / "every month of `year`" (month) — see
+    # docs/tasks/dashboard-periods.md and dashboard_service._resolve_bounds.
+    year: int | None
+    month: int | None
+    # The actual (start, end) range these totals were computed over —
+    # `end_date` is what "today" resolved to on THIS server, not whatever
+    # date the browser's own clock/timezone thinks it is. The frontend
+    # must reuse these verbatim (Recent Transactions, the "all transactions"
+    # link) instead of recomputing its own "today" — see
+    # docs/tasks/dashboard-periods.md's review notes on the client/server
+    # timezone mismatch this replaces.
+    start_date: date_ | None
+    end_date: date_
     real_income: Decimal
     spent: Decimal
     net: Decimal

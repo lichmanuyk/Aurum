@@ -22,6 +22,9 @@ test("a long unbroken transaction description never causes horizontal page overf
   });
 
   await page.goto("/");
+  // Fresh open defaults to "Всё время" — switch to "Год" mode first to
+  // reveal the month/year pickers at all (see docs/tasks/dashboard-periods.md).
+  await page.getByRole("button", { name: "Год", exact: true }).click();
   await page.getByRole("button", { name: /^\d{4}$/ }).first().click();
   await page.getByRole("option", { name: "2016" }).click();
   await page.getByRole("button", { name: "Авг", exact: true }).click();
@@ -48,6 +51,9 @@ test("same check on a narrow mobile viewport", async ({ page, request }) => {
   });
 
   await page.goto("/");
+  // Fresh open defaults to "Всё время" — switch to "Год" mode first to
+  // reveal the month/year pickers at all (see docs/tasks/dashboard-periods.md).
+  await page.getByRole("button", { name: "Год", exact: true }).click();
   await page.getByRole("button", { name: /^\d{4}$/ }).first().click();
   await page.getByRole("option", { name: "2016" }).click();
   await page.getByRole("button", { name: "Сен", exact: true }).click();
