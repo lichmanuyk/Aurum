@@ -2,6 +2,7 @@ import { afterEach, expect, it } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { SpendingByCategoryCard } from "./SpendingByCategoryCard";
+import { buildColorPatterns } from "@/lib/colorPatterns";
 import { setCurrency } from "@/lib/i18n";
 import type { CategoryBreakdownItem } from "@/types";
 
@@ -115,6 +116,33 @@ it("a click pins the highlight and Escape un-pins it", () => {
 
   flushSync(() => rowA.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(rowA.getAttribute("aria-pressed")).toBe("false");
+});
+
+it("a row past the first same-colored occurrence shows the same pattern swatch buildColorPatterns computes for it, and the first shows none", () => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  // makeItem's default color (#2a78d6) is shared by both, unless overridden.
+  const items = [
+    makeItem({ category_id: 1, name: "A", amount: "70", children: [] }),
+    makeItem({ category_id: 2, name: "B", amount: "30", children: [] }),
+  ];
+  flushSync(() => root.render(<SpendingByCategoryCard items={items} />));
+
+  const rows = Array.from(container.querySelectorAll("ul > li"));
+  const [rowA, rowB] = rows;
+  expect(rowA.querySelector("svg rect")).toBeNull(); // color's first occurrence needs no extra marker
+  const swatch = rowB.querySelector("svg rect");
+  expect(swatch).not.toBeNull();
+
+  // Cross-checks against the exact same shared function the donut's own
+  // sectors use — not a second, independently-duplicated notion of "what
+  // pattern this row should show".
+  const expectedFill = buildColorPatterns(
+    "spending-donut",
+    items.map((item) => ({ key: String(item.category_id), color: item.color }))
+  ).fillFor(String(items[1].category_id));
+  expect(swatch!.getAttribute("fill")).toBe(expectedFill);
 });
 
 // The "two same-colored categories get different sector fills at rest"

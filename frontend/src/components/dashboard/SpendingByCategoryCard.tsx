@@ -153,6 +153,13 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                 const key = rowKey(item);
                 const isActive = activeId === key;
                 const dimmed = activeId !== null && !isActive;
+                // The icon badge alone only carries the *color* — for a
+                // category whose sector got a pattern (because another
+                // category shares its color, see buildColorPatterns above),
+                // the row needs the same tell visible at rest, not just on
+                // hover, or row↔sector pairing goes back to "guess by color".
+                const rowFill = fillFor(key);
+                const isPatterned = rowFill.startsWith("url(");
                 return (
                   <li key={key} className="flex items-center gap-1 py-2 first:pt-0 last:pb-0">
                     {/* Fixed-width slot on every row, populated or not — the
@@ -194,6 +201,11 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
                       >
                         <Icon size={14} style={{ color: item.color }} />
                       </span>
+                      {isPatterned && (
+                        <svg width={10} height={10} className="shrink-0 rounded-[2px]" aria-hidden="true">
+                          <rect width={10} height={10} rx={2} fill={rowFill} />
+                        </svg>
+                      )}
                       <span className="min-w-0 flex-1 truncate text-sm text-text-primary">
                         {translateCategoryName(item.name)}
                       </span>

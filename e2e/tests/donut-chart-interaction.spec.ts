@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../fixtures";
 import { makeHolding } from "../../frontend/src/test/cryptoFixtures";
 import { createTransaction, getCategoryId, getDefaultAccountId } from "./helpers";
@@ -35,6 +35,20 @@ async function connectorLineEndpoint(card: Locator): Promise<{ x: number; y: num
   if (!svgBox) throw new Error("connector line <svg> not found");
   const point = await svg.locator("line").evaluate((el) => ({ x2: Number(el.getAttribute("x2")), y2: Number(el.getAttribute("y2")) }));
   return { x: svgBox.x + point.x2, y: svgBox.y + point.y2 };
+}
+
+/** The actual rendered <pattern id="..."> markup for a `fill="url(#...)"`
+ * value, with the id stripped — lets a test compare what two colliding
+ * categories' tiles actually look like, not just that their (always-unique,
+ * per-key) pattern *ids* differ. See colorPatterns.tsx/buildColorPatterns. */
+async function patternSignature(page: Page, fillAttr: string): Promise<string> {
+  const id = fillAttr.match(/^url\(#(.+)\)$/)?.[1];
+  if (!id) throw new Error(`not a pattern fill: ${fillAttr}`);
+  return page.locator(`pattern#${id}`).evaluate((el) => {
+    const clone = el.cloneNode(true) as Element;
+    clone.removeAttribute("id");
+    return clone.outerHTML;
+  });
 }
 
 async function expectPointInsideBox(point: { x: number; y: number }, box: Locator, slackPx = 4) {
@@ -118,6 +132,70 @@ test("same-colored dashboard categories: hover/keyboard/click sync row↔sector 
   await expect(rowA).toHaveAttribute("aria-pressed", "false");
   await page.mouse.move(0, 0);
   await expect(rowA).not.toHaveClass(/bg-surface-2/);
+});
+
+test("five same-colored dashboard categories get five genuinely distinct pattern tiles, and each row matches its own sector", async ({ page, request }) => {
+  // Isolated via the same export/wipe-transactions/restore dance as "a
+  // single expense category..." below — other specs in this same run (and
+  // earlier tests in this file) already have their own categories with
+  // real spend; sharing that pool here would either pull in an unrelated
+  // color collision or, combined with five *more* categories, tip the
+  // dashboard's own MAX_CHART_SLICES=8 "Other" folding for every test that
+  // runs after this one. Wiping transactions (categories are kept, just
+  // temporarily spend-free so none show up) and restoring afterward keeps
+  // this test's five categories from outliving it.
+  const snapshot = await (await request.get("/api/backup/export")).json();
+  const empty = Object.fromEntries(Object.entries(snapshot).map(([key, value]: [string, unknown]) =>
+    [key, Array.isArray(value) && !["accounts", "categories"].includes(key) ? [] : value]));
+  try {
+    expect((await request.post("/api/backup/import", { data: empty })).ok()).toBeTruthy();
+    const accountId = await getDefaultAccountId(request);
+    const color = "#2a78d6";
+    // Five is the minimum the review asked for, well under
+    // MAX_CHART_SLICES=8 (dashboard_service.py) — the most this donut can
+    // ever actually show before folding into "Other".
+    const names = ["Palette One", "Palette Two", "Palette Three", "Palette Four", "Palette Five"];
+    const amounts = ["50.00", "40.00", "30.00", "20.00", "10.00"];
+    for (let i = 0; i < names.length; i++) {
+      const category = await (await request.post("/api/categories", { data: { name: names[i], kind: "expense", color } })).json();
+      await createTransaction(request, { account_id: accountId, category_id: category.id, type: "expense", amount: amounts[i], description: `palette-${i}`, date: "2024-06-01" });
+    }
+
+    await page.goto("/");
+    const card = page.locator("div.rounded-xl", { has: page.getByText("Расходы по категориям", { exact: true }) });
+    const list = card.locator("ul");
+    const chart = card.locator(".recharts-wrapper");
+    // The swatch is a dedicated 10×10 <svg><rect>, not the icon badge (whose
+    // own <svg> icon glyphs are a different size and never use <rect>) —
+    // scoped by width so it can't accidentally match an icon's own shape.
+    const swatchRect = (row: Locator) => row.locator('svg[width="10"] rect');
+
+    // The color's first occurrence stays plain — no swatch needed, and its
+    // sector is the only one still showing the raw, unpatterned color.
+    const firstRow = list.getByRole("button", { name: new RegExp(`^${names[0]}\\b`) });
+    const firstSector = chart.getByRole("button", { name: new RegExp(`^${names[0]},`) });
+    await expect(swatchRect(firstRow)).toHaveCount(0);
+    expect(await firstSector.getAttribute("fill")).toBe(color);
+
+    // Every occurrence after the first needs its own tile — matched exactly
+    // between the row's own swatch and its sector (so the pairing is
+    // legible without hovering anything), and genuinely distinct from every
+    // other collision's tile, not just a different pattern id.
+    const collisionSignatures: string[] = [];
+    for (const name of names.slice(1)) {
+      const row = list.getByRole("button", { name: new RegExp(`^${name}\\b`) });
+      const sector = chart.getByRole("button", { name: new RegExp(`^${name},`) });
+      const rowFill = await swatchRect(row).getAttribute("fill");
+      const sectorFill = await sector.getAttribute("fill");
+      expect(rowFill).toBe(sectorFill);
+      expect(rowFill).toMatch(/^url\(#/);
+      collisionSignatures.push(await patternSignature(page, rowFill!));
+    }
+    expect(new Set(collisionSignatures).size).toBe(collisionSignatures.length);
+  } finally {
+    const restore = await request.post("/api/backup/import", { data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
 });
 
 test("the donut+list connector line lands on the real arc of an unequal, small sector at 1440px, and is absent at 375px", async ({ page, request }) => {
