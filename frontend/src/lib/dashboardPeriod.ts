@@ -50,3 +50,28 @@ export function parseDashboardPeriodParams(
   const month = Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12 ? parsedMonth : null;
   return { year, month };
 }
+
+function isoDate(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Mirrors backend/app/services/dashboard_service.py's own `_resolve_bounds`
+ * clamp — a period whose natural calendar end is still in the future (the
+ * current month, the current year in "every month" mode, or "all time"
+ * itself) never extends past today; a past period's own end is already
+ * <= today, so this is a no-op for it. Used by RecentTransactionsCard and
+ * TransactionsPage so both show the exact same set the Dashboard's own
+ * summary/category totals already do — otherwise a future-dated
+ * transaction (excluded from those totals) would still show up in Recent
+ * Transactions and via its "all transactions" link. Pure function of
+ * (period, today) — nothing to persist for it to survive a reload; only
+ * `period` itself needs to (already handled above). */
+export function periodEndDate(period: DashboardPeriod): string {
+  const now = new Date();
+  const today = isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  if (period.year === null) return today; // all time
+  const naturalEnd = period.month === null
+    ? isoDate(period.year, 12, 31) // whole year
+    : isoDate(period.year, period.month, new Date(period.year, period.month, 0).getDate()); // specific month
+  return naturalEnd < today ? naturalEnd : today;
+}

@@ -4,7 +4,7 @@ import { getCategoryIcon } from "@/lib/icons";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { categoryPath, translateCategoryName } from "@/lib/categoryLabels";
-import { dashboardLinkFor, type DashboardPeriod } from "@/lib/dashboardPeriod";
+import { dashboardLinkFor, periodEndDate, type DashboardPeriod } from "@/lib/dashboardPeriod";
 import { useTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
 
@@ -13,7 +13,13 @@ type RecentTransactionsCardProps = DashboardPeriod;
 export function RecentTransactionsCard({ year, month }: RecentTransactionsCardProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useTransactions({
-    year: year ?? undefined, month: month ?? undefined, page: 1, page_size: 6,
+    year: year ?? undefined, month: month ?? undefined,
+    // Same "ends today" clamp the Dashboard's own totals already apply —
+    // otherwise a future-dated transaction excluded from those totals
+    // would still show up here (see docs/tasks/dashboard-periods.md's
+    // review notes).
+    end_date: periodEndDate({ year, month }),
+    page: 1, page_size: 6,
   });
   const { data: categories } = useCategories();
 

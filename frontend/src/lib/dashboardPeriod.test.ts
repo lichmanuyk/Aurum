@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { dashboardLinkFor, parseDashboardPeriodParams, visibleMonthCount } from "./dashboardPeriod";
+import { dashboardLinkFor, parseDashboardPeriodParams, periodEndDate, visibleMonthCount } from "./dashboardPeriod";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -59,4 +59,16 @@ it("visibleMonthCount stops at the current month for the current year, and is 12
   expect(visibleMonthCount(2026)).toBe(9); // "today" is faked to 2026-09-25 above
   expect(visibleMonthCount(2025)).toBe(12);
   expect(visibleMonthCount(2030)).toBe(12);
+});
+
+it("periodEndDate clamps a still-open period (all time, the current year, the current month) to today", () => {
+  expect(periodEndDate({ year: null, month: null })).toBe("2026-09-25");
+  expect(periodEndDate({ year: 2026, month: null })).toBe("2026-09-25");
+  expect(periodEndDate({ year: 2026, month: 9 })).toBe("2026-09-25");
+});
+
+it("periodEndDate leaves a period that's already fully in the past at its own natural calendar end", () => {
+  expect(periodEndDate({ year: 2025, month: null })).toBe("2025-12-31");
+  expect(periodEndDate({ year: 2025, month: 12 })).toBe("2025-12-31");
+  expect(periodEndDate({ year: 2026, month: 1 })).toBe("2026-01-31"); // a past month within the current year
 });

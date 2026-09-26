@@ -15,7 +15,7 @@ import { useTags } from "@/hooks/useTags";
 import type { TransactionSort } from "@/api/transactions";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
-import { parseDashboardPeriodParams, visibleMonthCount } from "@/lib/dashboardPeriod";
+import { parseDashboardPeriodParams, periodEndDate, visibleMonthCount } from "@/lib/dashboardPeriod";
 import type { Transaction, TransactionType } from "@/types";
 
 const PAGE_SIZE = 20;
@@ -70,6 +70,12 @@ export function TransactionsPage() {
     // this axis", same as undefined — see api/transactions.ts.
     year: isSearching ? undefined : year ?? undefined,
     month: isSearching ? undefined : month ?? undefined,
+    // Same "ends today" clamp the Dashboard's own totals apply — otherwise
+    // a future-dated transaction the Dashboard excludes would still show
+    // here when landing via its "all transactions" link (see
+    // docs/tasks/dashboard-periods.md's review notes). A search already
+    // spans every period on purpose, so it stays unclamped too.
+    end_date: isSearching ? undefined : periodEndDate({ year, month }),
     search: isSearching ? search : undefined,
     type: type || undefined,
     category_id: categoryId ? Number(categoryId) : undefined,

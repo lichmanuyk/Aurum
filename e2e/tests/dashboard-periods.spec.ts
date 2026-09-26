@@ -110,6 +110,88 @@ test("all three period modes' \"all transactions\" link opens the matching set o
   expect(Number(oldTx.amount)).toBe(15);
 });
 
+test("a future-dated transaction never shows in Recent Transactions or via its link under \"Всё время\", though a past one does", async ({ page, request }) => {
+  const accountId = await getDefaultAccountId(request);
+  const salaryId = await getCategoryId(request, "Salary");
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "111.00", description: "dp-alltime-past", date: "2019-06-01",
+  });
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "222.00", description: "dp-alltime-future", date: "2099-06-01",
+  });
+
+  await page.goto("/");
+  const recentCard = page.locator("div.rounded-xl", { has: page.getByText("Последние транзакции", { exact: true }) });
+  await expect(recentCard.getByText("dp-alltime-past")).toBeVisible();
+  await expect(recentCard.getByText("dp-alltime-future")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Все транзакции" }).click();
+  await expect(page).toHaveURL(/\/transactions\?period=all/);
+  await expect(page.getByText("dp-alltime-past")).toBeVisible();
+  await expect(page.getByText("dp-alltime-future")).toHaveCount(0);
+});
+
+test("a future-dated transaction within the current year never shows under \"Год\"/\"Все месяцы\", though one earlier this year does", async ({ page, request }) => {
+  const today = new Date();
+  test.skip(today.getMonth() === 11 && today.getDate() === 31, "no room left in the current year to place a synthetic future date");
+  test.skip(today.getMonth() === 0 && today.getDate() <= 2, "no room early in the current year to place a synthetic past-but-this-year date");
+  const year = today.getFullYear();
+  const accountId = await getDefaultAccountId(request);
+  const salaryId = await getCategoryId(request, "Salary");
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "111.00", description: "dp-year-past", date: `${year}-01-02`,
+  });
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "222.00", description: "dp-year-future", date: `${year}-12-31`,
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Год", exact: true }).click();
+  const recentCard = page.locator("div.rounded-xl", { has: page.getByText("Последние транзакции", { exact: true }) });
+  await expect(recentCard.getByText("dp-year-past")).toBeVisible();
+  await expect(recentCard.getByText("dp-year-future")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Все транзакции" }).click();
+  await expect(page).toHaveURL(new RegExp(`/transactions\\?year=${year}$`));
+  await expect(page.getByText("dp-year-past")).toBeVisible();
+  await expect(page.getByText("dp-year-future")).toHaveCount(0);
+});
+
+test("a future-dated transaction later in the current month never shows in the current month's view, though earlier this month does", async ({ page, request }) => {
+  const today = new Date();
+  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  test.skip(today.getDate() >= lastDayOfMonth, "today is already the last day of the month — no room for a synthetic future date");
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
+  const monthLabel = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"][today.getMonth()];
+  const accountId = await getDefaultAccountId(request);
+  const salaryId = await getCategoryId(request, "Salary");
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "111.00", description: "dp-month-past", date: `${year}-${String(month).padStart(2, "0")}-01`,
+  });
+  await createTransaction(request, {
+    account_id: accountId, category_id: salaryId, type: "income",
+    amount: "222.00", description: "dp-month-future", date: `${year}-${String(month).padStart(2, "0")}-${String(lastDayOfMonth).padStart(2, "0")}`,
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Год", exact: true }).click();
+  await page.getByRole("button", { name: monthLabel, exact: true }).click();
+  const recentCard = page.locator("div.rounded-xl", { has: page.getByText("Последние транзакции", { exact: true }) });
+  await expect(recentCard.getByText("dp-month-past")).toBeVisible();
+  await expect(recentCard.getByText("dp-month-future")).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Все транзакции" }).click();
+  await expect(page).toHaveURL(new RegExp(`/transactions\\?year=${year}&month=${month}`));
+  await expect(page.getByText("dp-month-past")).toBeVisible();
+  await expect(page.getByText("dp-month-future")).toHaveCount(0);
+});
+
 test("period pills and month/year pickers work on a narrow (phone-width) viewport with a real keyboard", async ({ page, request }) => {
   const accountId = await getDefaultAccountId(request);
   const salaryId = await getCategoryId(request, "Salary");

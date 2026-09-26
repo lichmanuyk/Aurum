@@ -1,3 +1,6 @@
+from datetime import date
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,16 +13,28 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/summary", response_model=DashboardSummary)
 async def read_dashboard_summary(
-    # Omitting both now means "all time" (see docs/tasks/dashboard-periods.md)
-    # — a deliberate, documented change from the old "defaults to today"
-    # shape: the only real caller is this app's own Dashboard, which now
-    # opens on "all time" instead of the current month. A caller that still
-    # wants the old single-month behavior passes both explicitly, exactly
-    # as before — that shape is unchanged.
+    # "month" (the default) is the ORIGINAL contract, unchanged: a bare
+    # request with no params at all still resolves to the current
+    # year/month, and `month` alone still resolves against the current
+    # year — exactly as before docs/tasks/dashboard-periods.md. The two new
+    # modes ("every month of a year", "all time") are opt-in via this
+    # explicit param — never implied by omitting year/month, so an old
+    # caller's request shape and result are both untouched.
+    period: Literal["month", "year", "all"] = Query(default="month"),
     year: int | None = Query(default=None, ge=2000, le=2100),
     month: int | None = Query(default=None, ge=1, le=12),
     session: AsyncSession = Depends(get_reporting_session),
 ) -> DashboardSummary:
-    if month is not None and year is None:
-        raise HTTPException(status_code=422, detail="month requires year")
-    return await get_dashboard_summary(session, year, month)
+    today = date.today()
+    if period == "all":
+        if year is not None or month is not None:
+            raise HTTPException(status_code=422, detail="year/month are not allowed with period=all")
+        resolved_year, resolved_month = None, None
+    elif period == "year":
+        if month is not None:
+            raise HTTPException(status_code=422, detail="month is not allowed with period=year")
+        resolved_year, resolved_month = (year if year is not None else today.year), None
+    else:
+        resolved_year = year if year is not None else today.year
+        resolved_month = month if month is not None else today.month
+    return await get_dashboard_summary(session, resolved_year, resolved_month)
