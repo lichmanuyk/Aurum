@@ -13,7 +13,7 @@ app half-restored.
 from app.models.fx import FXRate
 from app.models.crypto import CryptoSyncState
 from app.core.money import currency_code, validate_money, validate_ledger_money, adjustment_rule_violation
-from app.models.enums import CryptoTransactionType, TransactionType
+from app.models.enums import AssetClass, CryptoTransactionType, TransactionType
 from app.schemas.fx import FXRateRead
 import logging
 from datetime import datetime, timezone
@@ -55,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 9
+BACKUP_FORMAT_VERSION = 10
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -129,6 +129,10 @@ def _validate_references(payload: BackupPayload) -> None:
                 raise HTTPException(400, f"Transaction {t.id} references unknown tag_id {tag_id}")
         if t.asset_id is not None and t.asset_id not in asset_ids:
             raise HTTPException(400, f"Transaction {t.id} references unknown asset_id {t.asset_id}")
+        if t.expense_asset_id is not None and t.expense_asset_id not in asset_ids:
+            raise HTTPException(
+                400, f"Transaction {t.id} references unknown expense_asset_id {t.expense_asset_id}"
+            )
 
     transaction_ids = {row.id for row in payload.transactions}
     for s in payload.transaction_splits:
@@ -136,6 +140,10 @@ def _validate_references(payload: BackupPayload) -> None:
             raise HTTPException(400, f"Transaction split {s.id} references unknown transaction_id {s.transaction_id}")
         if s.category_id is not None and s.category_id not in category_ids:
             raise HTTPException(400, f"Transaction split {s.id} references unknown category_id {s.category_id}")
+        if s.expense_asset_id is not None and s.expense_asset_id not in asset_ids:
+            raise HTTPException(
+                400, f"Transaction split {s.id} references unknown expense_asset_id {s.expense_asset_id}"
+            )
 
     for v in payload.asset_valuations:
         if v.asset_id not in asset_ids:
@@ -190,6 +198,10 @@ def _validate_references(payload: BackupPayload) -> None:
             )
         if r.category_id is not None and r.category_id not in category_ids:
             raise HTTPException(400, f"Recurring transaction {r.id} references unknown category_id {r.category_id}")
+        if r.expense_asset_id is not None and r.expense_asset_id not in asset_ids:
+            raise HTTPException(
+                400, f"Recurring transaction {r.id} references unknown expense_asset_id {r.expense_asset_id}"
+            )
 
 
 async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None:
@@ -206,7 +218,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -396,6 +408,15 @@ def _validate_money_backup(payload):
                 transfer_account_id=row.transfer_account_id, category_id=row.category_id)
             if row.amount <= 0 or violation or row.type == TransactionType.ADJUSTMENT:
                 raise ValueError(violation or "Recurring amount must be positive")
+            if row.expense_asset_id is not None:
+                # Same rule as services/recurring_service.py's own
+                # _ensure_expense_asset_valid — a template's link is only
+                # meaningful for an EXPENSE template, and never a crypto
+                # holding shell.
+                if row.type != TransactionType.EXPENSE:
+                    raise ValueError("expense_asset_id is only valid for expense recurring templates")
+                if assets[row.expense_asset_id].asset_class == AssetClass.CRYPTO:
+                    raise ValueError("Crypto assets cannot be linked to a recurring template")
         for row in payload.crypto_transactions:
             if row.quote_currency is not None:
                 currency_code(row.quote_currency)
@@ -475,6 +496,14 @@ def _validate_money_backup(payload):
                 if not all(v is not None for v in override) or tx.type not in (TransactionType.INCOME, TransactionType.EXPENSE) or override[0] <= 0:
                     raise ValueError("Invalid reporting override")
                 validate_ledger_money(override[0], override[1])
+            if tx.expense_asset_id is not None:
+                # Same rule as expense_asset_link_violation
+                # (schemas/transaction.py): only a plain (non-split) expense
+                # can carry this link on its own row.
+                if tx.type != TransactionType.EXPENSE or splits[tx.id]:
+                    raise ValueError("expense_asset_id is only valid on a non-split expense")
+                if assets[tx.expense_asset_id].asset_class == AssetClass.CRYPTO:
+                    raise ValueError("Crypto assets cannot be linked to an expense")
             if splits[tx.id]:
                 if len(splits[tx.id]) < 2 or tx.category_id is not None or sum(s.amount for s in splits[tx.id]) != tx.amount:
                     raise ValueError("Invalid split total")
@@ -482,5 +511,10 @@ def _validate_money_backup(payload):
                     validate_ledger_money(split.amount, native)
                     if split.amount <= 0:
                         raise ValueError("Invalid split amount")
+                    if split.expense_asset_id is not None:
+                        if tx.type != TransactionType.EXPENSE:
+                            raise ValueError("expense_asset_id is only valid for expense splits")
+                        if assets[split.expense_asset_id].asset_class == AssetClass.CRYPTO:
+                            raise ValueError("Crypto assets cannot be linked to an expense")
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc

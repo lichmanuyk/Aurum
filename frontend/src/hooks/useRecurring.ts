@@ -16,6 +16,10 @@ export function useInvalidateRecurring() {
   const queryClient = useQueryClient();
   return (alsoInvalidateTransactions: boolean) => {
     queryClient.invalidateQueries({ queryKey: ["recurring"] });
+    // A template's own asset link (docs/tasks/property-expense-links.md)
+    // changes which asset's report lists it — refresh regardless of
+    // whether this call also posted a real Transaction.
+    queryClient.invalidateQueries({ queryKey: ["asset-expenses"] });
     if (alsoInvalidateTransactions) {
       // Posting creates a real Transaction — refresh everything derived from it.
       queryClient.invalidateQueries({ queryKey: ["accounts"] });

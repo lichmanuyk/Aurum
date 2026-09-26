@@ -18,7 +18,10 @@ test('buy and sell an asset from an account without counting trades as income or
     const capital = async () => Number((await (await request.get('/api/net-worth/summary')).json()).current);
     const flow = async () => (await request.get('/api/cash-flow')).json();
     await page.goto('/net-worth');
-    await page.getByRole('button', { name: /Asset flow test:/ }).click();
+    // Narrowed to the "Buy and sell" action specifically — AssetsTable now
+    // has a second per-row button sharing the same "{name}: …" aria-label
+    // prefix (the "Expenses" action, see docs/tasks/property-expense-links.md).
+    await page.getByRole('button', { name: /Asset flow test:.*(Покупка и продажа|Buy and sell)/ }).click();
     const dialog = page.getByRole('dialog');
     await dialog.locator('#movement-account').selectOption(String(account.id));
     await dialog.locator('#movement-gross').fill('300');

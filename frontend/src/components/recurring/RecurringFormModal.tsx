@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { ExpenseAssetSelect } from "@/components/transactions/ExpenseAssetSelect";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateRecurring, useUpdateRecurring } from "@/hooks/useRecurring";
@@ -24,6 +25,10 @@ const EMPTY_FORM = {
   account_id: "",
   category_id: "",
   transfer_account_id: "",
+  // Only meaningful for an EXPENSE template (see
+  // docs/tasks/property-expense-links.md) — posting copies it onto the
+  // created Transaction unchanged.
+  expense_asset_id: "",
   amount: "",
   description: "",
   merchant: "",
@@ -49,6 +54,7 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
         account_id: String(recurring.account_id),
         category_id: recurring.category_id ? String(recurring.category_id) : "",
         transfer_account_id: recurring.transfer_account_id ? String(recurring.transfer_account_id) : "",
+        expense_asset_id: recurring.expense_asset_id ? String(recurring.expense_asset_id) : "",
         amount: recurring.amount,
         description: recurring.description,
         merchant: recurring.merchant ?? "",
@@ -89,6 +95,11 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
       account_id: Number(form.account_id),
       category_id: form.type === "transfer" ? null : form.category_id ? Number(form.category_id) : null,
       transfer_account_id: form.type === "transfer" ? Number(form.transfer_account_id) : null,
+      // Only an expense template can carry this (see
+      // docs/tasks/property-expense-links.md) — every other type always
+      // sends null, which both means "no link" on create and explicitly
+      // clears an existing one on update.
+      expense_asset_id: form.type === "expense" && form.expense_asset_id ? Number(form.expense_asset_id) : null,
       amount: form.amount,
       description: form.description,
       merchant: form.merchant || null,
@@ -121,9 +132,18 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
             <Select
               id="recurring-type"
               value={form.type}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, type: event.target.value as TransactionType, category_id: "" }))
-              }
+              onChange={(event) => {
+                const nextType = event.target.value as TransactionType;
+                setForm((prev) => ({
+                  ...prev,
+                  type: nextType,
+                  category_id: "",
+                  // A link only ever makes sense for an expense template —
+                  // switching away clears it here too (see
+                  // docs/tasks/property-expense-links.md).
+                  expense_asset_id: nextType === "expense" ? prev.expense_asset_id : "",
+                }));
+              }}
             >
               <option value="expense">{t("transactions.form.typeExpense")}</option>
               <option value="income">{t("transactions.form.typeIncome")}</option>
@@ -235,6 +255,17 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
                 </option>
               ))}
             </Select>
+          </div>
+        )}
+
+        {form.type === "expense" && (
+          <div>
+            <Label htmlFor="recurring-expense-asset">{t("transactions.form.expenseAssetLabel")}</Label>
+            <ExpenseAssetSelect
+              id="recurring-expense-asset"
+              value={form.expense_asset_id}
+              onChange={(value) => setForm((prev) => ({ ...prev, expense_asset_id: value }))}
+            />
           </div>
         )}
 

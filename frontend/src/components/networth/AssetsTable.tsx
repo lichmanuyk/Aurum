@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeftRight, Pencil, Receipt, Trash2 } from "lucide-react";
 import { getCategoryIcon } from "@/lib/icons";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
@@ -24,6 +24,9 @@ interface AssetsTableProps {
   onEdit: (asset: Asset) => void;
   onDelete: (asset: Asset) => void;
   onMovement: (asset: Asset) => void;
+  // Opens the asset's own "Expenses" view (period, total, recent payments,
+  // linked templates) — see docs/tasks/property-expense-links.md.
+  onExpenses: (asset: Asset) => void;
 }
 
 /** Native amounts in different currencies (EUR/USD/PLN…) can't be compared
@@ -43,7 +46,7 @@ function compareByCapitalValue(a: Asset, b: Asset): number {
   return a.name.localeCompare(b.name) || a.id - b.id;
 }
 
-export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTableProps) {
+export function AssetsTable({ items, onEdit, onDelete, onMovement, onExpenses }: AssetsTableProps) {
   const { t, language } = useTranslation();
 
   if (items.length === 0) {
@@ -120,6 +123,15 @@ export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTable
               )}
             </span>
             <span className="flex shrink-0 gap-1">
+              <button
+                type="button"
+                aria-label={`${asset.name}: ${t("netWorth.assetsTable.expensesLabel")}`}
+                title={t("netWorth.assetsTable.expensesLabel")}
+                onClick={() => onExpenses(asset)}
+                className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"
+              >
+                <Receipt size={15} />
+              </button>
               <button type="button" aria-label={`${asset.name}: ${language === "ru" ? "Покупка и продажа" : "Buy and sell"}`} title={language === "ru" ? "Покупка и продажа" : "Buy and sell"} onClick={() => onMovement(asset)} className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"><ArrowLeftRight size={15} /></button>
               <button
                 type="button"

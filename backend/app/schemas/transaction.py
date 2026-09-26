@@ -43,6 +43,31 @@ def transfer_rule_violation(
     return None
 
 
+def expense_asset_link_violation(
+    *, type: TransactionType, expense_asset_id: int | None, split_count: int
+) -> str | None:
+    """A completed expense's optional, additive link to a manually-tracked
+    asset (property, vehicle, ...) — see docs/tasks/property-expense-links.md.
+    It never creates a second transaction and never changes the linked
+    asset's own valuation; it only lets the asset's own "Expenses" view find
+    this row later. Checked the same way as transfer_rule_violation/
+    split_rule_violation above: on create, and against the row as it would
+    look *after* a patch (routes/transactions.py), so an edit can't leave a
+    non-expense row or a split parent still carrying the link.
+
+    Only a plain (non-split) EXPENSE row's own amount can carry this link —
+    a split transaction links its *lines* instead (TransactionSplitInput's
+    own field), so the same money is never classified twice under one asset
+    (once on the parent, once again on a line)."""
+    if expense_asset_id is None:
+        return None
+    if type != TransactionType.EXPENSE:
+        return "expense_asset_id is only valid for expense transactions"
+    if split_count > 0:
+        return "expense_asset_id cannot be set on a split transaction's parent; link its split lines instead"
+    return None
+
+
 def split_rule_violation(
     *,
     type: TransactionType,
@@ -90,6 +115,11 @@ class TransactionFields(BaseModel):
     account_id: int
     category_id: int | None = None
     transfer_account_id: int | None = None
+    # Optional classification of this expense as spending on a
+    # manually-tracked asset — see expense_asset_link_violation above.
+    # None/omitted here means "no link"; a split transaction links its
+    # lines instead (see TransactionSplitInput.expense_asset_id below).
+    expense_asset_id: int | None = None
     type: TransactionType
     adjustment_reason: AdjustmentReason | None = None
     amount: Decimal = Field(max_digits=18, decimal_places=6)
@@ -129,6 +159,10 @@ class TransactionSplitInput(BaseModel):
     category_id: int
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
     note: str | None = Field(default=None, max_length=200)
+    # This line's own optional asset link — see
+    # expense_asset_link_violation's docstring above for why a split's
+    # lines carry the link instead of the parent.
+    expense_asset_id: int | None = None
 
 
 class TransactionCreate(TransactionBase):
@@ -152,6 +186,11 @@ class TransactionCreate(TransactionBase):
         )
         if violation:
             raise ValueError(violation)
+        asset_violation = expense_asset_link_violation(
+            type=self.type, expense_asset_id=self.expense_asset_id, split_count=len(splits)
+        )
+        if asset_violation:
+            raise ValueError(asset_violation)
         return self
 
 
@@ -164,6 +203,14 @@ class TransactionUpdate(BaseModel):
     account_id: int | None = None
     category_id: int | None = None
     transfer_account_id: int | None = None
+    # Omitted -> the existing link (if any) is left untouched. Explicit
+    # null -> the link is cleared. Explicit id -> the link is set/replaced,
+    # subject to the same expense_asset_link_violation checks as create
+    # (see routes/transactions.py's update_transaction) — this is the
+    # "explicit user action" required to change/remove a link per
+    # docs/tasks/property-expense-links.md, never an implicit side effect
+    # of some other field changing.
+    expense_asset_id: int | None = None
     type: TransactionType | None = None
     adjustment_reason: AdjustmentReason | None = None
     amount: Decimal | None = Field(default=None, max_digits=18, decimal_places=6)
@@ -192,6 +239,7 @@ class TransactionSplitRead(BaseModel):
     category: CategoryRead | None = None
     amount: Decimal
     note: str | None
+    expense_asset_id: int | None = None
 
 
 class TransactionRead(TransactionFields):

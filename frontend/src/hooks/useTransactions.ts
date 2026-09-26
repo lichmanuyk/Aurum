@@ -30,6 +30,11 @@ function useInvalidateAfterTransactionChange() {
     queryClient.invalidateQueries({ queryKey: ["financial-alerts"] });
     queryClient.invalidateQueries({ queryKey: ["advice"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+    // A create/edit/delete can change any asset's linked "Expenses" total
+    // (see docs/tasks/property-expense-links.md) — invalidate every
+    // asset/period/page combination rather than guessing which one(s) this
+    // particular transaction touched.
+    queryClient.invalidateQueries({ queryKey: ["asset-expenses"] });
   };
 }
 

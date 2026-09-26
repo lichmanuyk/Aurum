@@ -11,6 +11,13 @@ class RecurringTransactionCreate(BaseModel):
     account_id: int
     category_id: int | None = None
     transfer_account_id: int | None = None
+    # Same optional, additive asset link as a plain expense's own
+    # expense_asset_id (see docs/tasks/property-expense-links.md) — only
+    # valid for an EXPENSE template (see services/recurring_service.py's
+    # _ensure_expense_asset_matches_type). Posting the template copies it
+    # onto the created Transaction unchanged; it never affects the
+    # template's own amount/account or the asset's valuation.
+    expense_asset_id: int | None = None
     type: TransactionType
     amount: Decimal = Field(gt=0)
     description: str = Field(min_length=1, max_length=255)
@@ -31,6 +38,10 @@ class RecurringTransactionUpdate(BaseModel):
     account_id: int | None = None
     category_id: int | None = None
     transfer_account_id: int | None = None
+    # Omitted -> existing link untouched; explicit null -> cleared; explicit
+    # id -> set/replaced (same "explicit user action" contract as
+    # Transaction.expense_asset_id's own update field).
+    expense_asset_id: int | None = None
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     description: str | None = Field(default=None, min_length=1, max_length=255)
@@ -56,6 +67,7 @@ class RecurringTransactionRead(BaseModel):
     category_name: str | None
     category_color: str | None
     category_icon: str | None
+    expense_asset_id: int | None
     transfer_account_id: int | None
     transfer_account_name: str | None
     type: TransactionType

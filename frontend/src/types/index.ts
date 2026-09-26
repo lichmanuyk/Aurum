@@ -77,16 +77,29 @@ export interface TransactionSplit {
   category: Category | null;
   amount: string;
   note: string | null;
+  // This line's own optional link to a manually-tracked asset (property,
+  // vehicle, ...) — see docs/tasks/property-expense-links.md. Independent
+  // of the parent Transaction's own expense_asset_id below: a split
+  // transaction links its *lines* instead, never both.
+  expense_asset_id: number | null;
 }
 
 export interface TransactionSplitInput {
   category_id: number;
   amount: string;
   note?: string | null;
+  // Omitted/undefined on create -> no link. On update, splits are always
+  // fully replaced (see TransactionInput.splits) — resend the same id to
+  // keep a line's existing link.
+  expense_asset_id?: number | null;
 }
 
 export interface Transaction {
   asset_id?: number | null;
+  // The optional, additive classification of this EXPENSE as spending on a
+  // manually-tracked asset — see docs/tasks/property-expense-links.md.
+  // Never set together with `splits` (a split links its lines instead).
+  expense_asset_id?: number | null;
   adjustment_reason?: AdjustmentReason | null;
   destination_amount?: string | null;
   reporting_amount_override?: string | null;
@@ -117,6 +130,10 @@ export interface TransactionPage {
 }
 
 export interface TransactionInput {
+  // Omitted on create -> no link. On update: omitted -> existing link
+  // untouched; null -> explicitly cleared; an id -> set/replaced. See
+  // docs/tasks/property-expense-links.md.
+  expense_asset_id?: number | null;
   adjustment_reason?: AdjustmentReason | null;
   destination_amount?: string | null;
   reporting_amount_override?: string | null;
@@ -151,6 +168,11 @@ export interface RecurringTransaction {
   category_name: string | null;
   category_color: string | null;
   category_icon: string | null;
+  // Same optional asset link as a plain expense's own expense_asset_id —
+  // only meaningful for an EXPENSE template (see
+  // docs/tasks/property-expense-links.md). Posting the template copies it
+  // onto the created Transaction unchanged.
+  expense_asset_id: number | null;
   transfer_account_id: number | null;
   transfer_account_name: string | null;
   type: TransactionType;
@@ -171,6 +193,9 @@ export interface RecurringTransactionInput {
   account_id: number;
   category_id: number | null;
   transfer_account_id: number | null;
+  // Omitted on create -> no link. On update: omitted -> existing link
+  // untouched; null -> explicitly cleared; an id -> set/replaced.
+  expense_asset_id?: number | null;
   type: TransactionType;
   amount: string;
   description: string;
@@ -270,6 +295,46 @@ export interface AssetUpdateInput {
 export interface AssetValuationInput {
   value: string;
   as_of_date: string;
+}
+
+// One linked expense in a manually-tracked asset's own "Expenses" view —
+// see docs/tasks/property-expense-links.md. Either a plain (non-split)
+// Transaction's whole amount, or one split line of a larger receipt
+// (`split_id` set, `is_split` true).
+export interface AssetExpenseItem {
+  id: number;
+  split_id: number | null;
+  date: string;
+  description: string;
+  merchant: string | null;
+  account_id: number;
+  account_name: string;
+  account_currency: string;
+  // The linked slice's own amount, in the account's native ledger currency
+  // — never the converted `amount` below.
+  native_amount: string;
+  category_id: number | null;
+  category_name: string | null;
+  is_split: boolean;
+  note: string | null;
+  amount: string;
+}
+
+// GET /assets/{id}/expenses — the period total (over every matching row,
+// not just this page), the paginated recent-payments list, and the
+// recurring templates already linked to this asset.
+export interface AssetExpenseReport {
+  asset_id: number;
+  reporting_currency: string;
+  start_date: string | null;
+  end_date: string;
+  total_amount: string;
+  transaction_count: number;
+  items: AssetExpenseItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  templates: RecurringTransaction[];
 }
 
 export interface AssetMovementInput {

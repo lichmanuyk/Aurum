@@ -30,7 +30,7 @@ function renderTable(items: Asset[]) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  flushSync(() => root.render(<AssetsTable items={items} onEdit={() => {}} onDelete={() => {}} onMovement={() => {}} />));
+  flushSync(() => root.render(<AssetsTable items={items} onEdit={() => {}} onDelete={() => {}} onMovement={() => {}} onExpenses={() => {}} />));
 }
 
 function rowNames(): string[] {
