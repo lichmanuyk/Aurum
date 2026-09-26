@@ -81,7 +81,12 @@ export function AssetsTable({ items, onEdit, onDelete, onMovement }: AssetsTable
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-sm font-medium tabular-nums text-text-primary">
-                {formatMoney(asset.current_value, asset.currency)}
+                {/* A never-valued asset has no real amount to show — "0"
+                    there would read as an actual zero valuation, not as
+                    "unknown". A genuine zero (a recorded valuation of 0) and
+                    a known native amount with just a missing FX rate both
+                    keep showing their real figure below. */}
+                {asset.capital_value_error === "no_valuation" ? "—" : formatMoney(asset.current_value, asset.currency)}
               </span>
               {/* The sort order above (compareByCapitalValue) is by this
                   equivalent, not the native amount shown above it — surface

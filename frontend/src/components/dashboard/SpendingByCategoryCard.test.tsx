@@ -118,6 +118,33 @@ it("a click pins the highlight and Escape un-pins it", () => {
   expect(rowA.getAttribute("aria-pressed")).toBe("false");
 });
 
+it("does not resurrect a cleared pin when the same category comes back in a later items list", () => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const items = [
+    makeItem({ category_id: 1, name: "A", amount: "70", children: [] }),
+    makeItem({ category_id: 2, name: "B", amount: "30", children: [] }),
+  ];
+  flushSync(() => root.render(<SpendingByCategoryCard items={items} />));
+
+  const rowA = container.querySelectorAll("ul button")[0] as HTMLButtonElement;
+  flushSync(() => rowA.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(rowA.getAttribute("aria-pressed")).toBe("true");
+
+  // Category A drops out entirely (e.g. a period switch with no spend in
+  // it that period)...
+  flushSync(() => root.render(<SpendingByCategoryCard items={[makeItem({ category_id: 2, name: "B", amount: "30", children: [] })]} />));
+  // ...then comes back. The pin must have been genuinely cleared when it
+  // disappeared, not merely hidden for that one render — otherwise it
+  // silently reactivates here on a row the user never clicked this time.
+  flushSync(() => root.render(<SpendingByCategoryCard items={items} />));
+
+  const revivedRowA = container.querySelectorAll("ul button")[0] as HTMLButtonElement;
+  expect(revivedRowA.getAttribute("aria-pressed")).toBe("false");
+  expect(revivedRowA.className).not.toContain("bg-surface-2");
+});
+
 it("a row past the first same-colored occurrence shows the same pattern swatch buildColorPatterns computes for it, and the first shows none", () => {
   container = document.createElement("div");
   document.body.appendChild(container);

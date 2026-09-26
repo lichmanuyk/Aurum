@@ -2,7 +2,7 @@ import { useSectionFormat } from "@/lib/displayCurrency";
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { getCategoryIcon } from "@/lib/icons";
-import { liveId, useChartSelection } from "@/lib/chartSelection";
+import { useChartSelection } from "@/lib/chartSelection";
 import { cn } from "@/lib/utils";
 
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
@@ -36,10 +36,9 @@ export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCar
   // Same hover/pin mechanism as the donut+list pairs (PR #42) — a
   // segmented bar has no donut sectors to connect a line to, so only
   // useChartSelection is reused here, not sectorConnector.
-  const selection = useChartSelection<string>();
   const validIds = useMemo(() => new Set(sorted.map((item) => item.key)), [sorted]);
-  const activeId = liveId(selection.activeId, validIds);
-  const pinnedId = liveId(selection.pinnedId, validIds);
+  const selection = useChartSelection<string>(validIds);
+  const { activeId, pinnedId } = selection;
 
   return (
     <Card>

@@ -5,7 +5,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { CategoryBreakdownModal } from "@/components/categories/CategoryBreakdownModal";
 import { getCategoryIcon } from "@/lib/icons";
-import { liveId, useChartSelection } from "@/lib/chartSelection";
+import { useChartSelection } from "@/lib/chartSelection";
 import { buildColorPatterns } from "@/lib/colorPatterns";
 import { sectorMidAngleDeg, useSectorConnectorLine } from "@/lib/sectorConnector";
 import { cn } from "@/lib/utils";
@@ -62,10 +62,9 @@ export function SpendingByCategoryCard({ items }: SpendingByCategoryCardProps) {
   // is serialized as string to avoid float precision loss).
   const chartData = items.map((item) => ({ ...item, amount: Number(item.amount) }));
 
-  const selection = useChartSelection<string>();
   const validIds = useMemo(() => new Set(items.map(rowKey)), [items]);
-  const activeId = liveId(selection.activeId, validIds);
-  const pinnedId = liveId(selection.pinnedId, validIds);
+  const selection = useChartSelection<string>(validIds);
+  const { activeId, pinnedId } = selection;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartAreaRef = useRef<HTMLDivElement>(null);

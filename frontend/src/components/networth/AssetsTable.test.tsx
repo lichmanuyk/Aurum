@@ -91,6 +91,27 @@ it("keeps an asset with no valuation yet visible, sorted after every valued asse
   expect(container.textContent).toContain("нет оценки");
 });
 
+it("shows a dash instead of a monetary 0 for a never-valued asset, but keeps a real recorded zero and a known native amount with a missing FX rate as real figures", () => {
+  renderTable([
+    makeAsset({ id: 1, name: "Not valued yet", current_value: "0", capital_value: null, capital_value_error: "no_valuation" }),
+    makeAsset({ id: 2, name: "Really zero", current_value: "0", capital_value: "0", capital_value_error: null }),
+    makeAsset({ id: 3, name: "No FX rate", current_value: "10", currency: "GBP", capital_value: null, capital_value_error: "fx_rate_missing" }),
+  ]);
+
+  const rows = Array.from(container.querySelectorAll("li"));
+  const amountOf = (name: string) =>
+    rows.find((li) => li.textContent?.includes(name))?.querySelector(".text-sm.font-medium.tabular-nums.text-text-primary")?.textContent;
+
+  expect(amountOf("Not valued yet")).toBe("—");
+  // A genuine zero valuation still reads as a real amount, not a dash.
+  expect(amountOf("Really zero")).not.toBe("—");
+  expect(amountOf("Really zero")).toMatch(/0/);
+  // The native amount is known even without a capital-currency equivalent —
+  // only the *equivalent* is missing, so the native figure stays a number.
+  expect(amountOf("No FX rate")).not.toBe("—");
+  expect(amountOf("No FX rate")).toMatch(/10/);
+});
+
 it("keeps an asset with a missing FX rate visible, sorted after every valued asset, with an explicit label distinct from 'no valuation'", () => {
   renderTable([
     makeAsset({ id: 1, name: "Valued", capital_value: "1" }),

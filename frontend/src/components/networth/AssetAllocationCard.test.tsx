@@ -103,3 +103,24 @@ it("clears the pin instead of erroring when the pinned class disappears from a r
   expect(rowButtons()).toHaveLength(1);
   expect(rowButtons()[0].getAttribute("aria-pressed")).toBe("false");
 });
+
+it("does not resurrect a cleared pin when the same key comes back in a later breakdown", () => {
+  render([makeItem({ key: "cash", amount: "70", percent: 70 }), makeItem({ key: "investments", amount: "30", percent: 30 })]);
+
+  const rowCash = rowButtons()[0];
+  flushSync(() => rowCash.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(rowCash.getAttribute("aria-pressed")).toBe("true");
+
+  // "cash" drops out entirely...
+  flushSync(() => root.render(<AssetAllocationCard breakdown={[makeItem({ key: "investments", amount: "30", percent: 100 })]} isLoading={false} />));
+  // ...then comes back (e.g. a fresh account balance, or a currency switch
+  // that briefly recomputed the breakdown without it). The *state* must
+  // have actually been cleared when it disappeared, not just hidden for
+  // that one render — otherwise it silently reactivates here, highlighting
+  // a row the user never touched this time around.
+  flushSync(() => root.render(<AssetAllocationCard breakdown={[makeItem({ key: "cash", amount: "70", percent: 70 }), makeItem({ key: "investments", amount: "30", percent: 30 })]} isLoading={false} />));
+
+  const revivedCash = rowButtons()[0];
+  expect(revivedCash.getAttribute("aria-pressed")).toBe("false");
+  expect(revivedCash.className).not.toContain("bg-surface-2");
+});

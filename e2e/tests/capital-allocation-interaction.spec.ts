@@ -174,11 +174,20 @@ test("assets table orders by capital equivalent (not native amount) across curre
     const zeroRow = assetsCard.locator("li", { hasText: "Real zero" });
     await expect(zeroRow).not.toContainText("нет оценки");
     await expect(zeroRow).not.toContainText("нет курса");
+    // A real recorded zero valuation still reads as an actual amount ("0 $"),
+    // never the dash reserved for "nothing to convert at all".
+    await expect(zeroRow.locator(".text-sm.font-medium.tabular-nums.text-text-primary")).not.toHaveText("—");
     const unvaluedRow = assetsCard.locator("li", { hasText: "Not valued yet" });
     await expect(unvaluedRow).toContainText("нет оценки");
+    // A never-valued asset shows a dash, not a monetary "0" that would read
+    // as a real (if tiny) valuation.
+    await expect(unvaluedRow.locator(".text-sm.font-medium.tabular-nums.text-text-primary")).toHaveText("—");
     const noRateRow = assetsCard.locator("li", { hasText: "No FX rate" });
     await expect(noRateRow).toContainText("нет курса");
     await expect(noRateRow).not.toContainText("нет оценки");
+    // The native amount is known even though its capital-currency equivalent
+    // isn't — only the missing rate is a dash-free "нет курса" label below.
+    await expect(noRateRow.locator(".text-sm.font-medium.tabular-nums.text-text-primary")).toContainText("10");
 
     // The equivalent line is only shown when it adds information over the
     // native amount already displayed.

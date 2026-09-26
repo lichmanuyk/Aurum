@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 
-/** Shared hover/pin state for a donut ↔ list pair (see
- * docs/tasks/donut-chart-interaction.md) — reused identically by
- * SpendingByCategoryCard, CryptoAllocationBody and
- * CryptoNetworkAllocationBody rather than each reimplementing it.
+/** Shared hover/pin state for a donut/bar ↔ list pair (see
+ * docs/tasks/donut-chart-interaction.md,
+ * docs/tasks/capital-allocation-interaction.md) — reused identically by
+ * SpendingByCategoryCard, CryptoAllocationBody, CryptoNetworkAllocationBody
+ * and AssetAllocationCard rather than each reimplementing it.
  *
  * Hover and keyboard focus behave the same way (both just move
  * `hoveredId`) and revert the moment the pointer/focus leaves. A click (or
@@ -12,10 +13,30 @@ import { useCallback, useState } from "react";
  * has no real hover. Pinning the same id again, or Escape, un-pins.
  * `activeId` is what should actually be highlighted right now: a live
  * hover always wins over a pin, so briefly hovering something else while a
- * pin is active still previews it correctly. */
-export function useChartSelection<Id extends string>() {
+ * pin is active still previews it correctly.
+ *
+ * `validIds` is the caller's current id set (categories/classes/coins —
+ * whatever this render's rows/sectors actually are). A pinned/hovered id
+ * can outlive the row it pointed at — a currency, period, or holdings
+ * refresh can drop or rename items out from under it. This clears the
+ * *actual state*, not just what's displayed for one render: if the same
+ * key ever comes back later (e.g. a class that briefly had zero balance),
+ * it comes back unselected, not silently reactivated from state that was
+ * merely hidden in the meantime. */
+export function useChartSelection<Id extends string>(validIds: ReadonlySet<Id>) {
   const [hoveredId, setHoveredId] = useState<Id | null>(null);
   const [pinnedId, setPinnedId] = useState<Id | null>(null);
+
+  // A layout effect, not a passive one — it must land before the next
+  // paint (and, just as importantly, before a synchronous re-render can
+  // observe stale state), or a currency/data refresh could briefly flash
+  // a highlight on whatever now occupies the old id, or — in code that
+  // re-renders synchronously in response to its own state — see the old
+  // id survive a tick it shouldn't.
+  useLayoutEffect(() => {
+    setHoveredId((current) => (current !== null && !validIds.has(current) ? null : current));
+    setPinnedId((current) => (current !== null && !validIds.has(current) ? null : current));
+  }, [validIds]);
 
   const enter = useCallback((id: Id) => setHoveredId(id), []);
   const leave = useCallback(() => setHoveredId(null), []);
@@ -44,13 +65,4 @@ export function useChartSelection<Id extends string>() {
   );
 
   return { activeId: hoveredId ?? pinnedId, pinnedId, enter, leave, togglePin, clearPin, onKeyDown };
-}
-
-/** A pinned/hovered id can outlive the row it pointed at — a currency,
- * period, or holdings refresh can drop or rename items out from under it.
- * Filtering it against the *current* id set at read time (rather than an
- * effect that clears it later) means a stale id simply never highlights or
- * opens anything for a tick, with nothing left to clean up. */
-export function liveId<Id extends string>(id: Id | null, validIds: ReadonlySet<Id>): Id | null {
-  return id !== null && validIds.has(id) ? id : null;
 }
