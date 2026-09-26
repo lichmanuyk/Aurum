@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/Button";
@@ -22,20 +23,13 @@ function moveDay(day: string, offset: number): string {
   return value.toISOString().slice(0, 10);
 }
 
-/** Fills the gap the card just reported via sequential, ≤93-day
- * POST /fx-rates/nbp calls (the existing NBPImport limit) — same chunking
- * shape as components/settings/NbpImport.tsx. Covers `seriesStart` minus 7
- * days (for the first available publication before the window starts) up
- * to `seriesEnd`; never earlier than NBP's own history floor. Sequential,
- * not parallel, so a transient error only ever loses the one interval
- * still in flight. */
-async function loadPeriodRates(seriesStart: string, seriesEnd: string): Promise<void> {
-  const start = [NBP_EPOCH, moveDay(seriesStart, -7)].sort().at(-1)!;
-  for (let end = seriesEnd; end >= start; ) {
-    const from = [start, moveDay(end, -92)].sort().at(-1)!;
-    await api.post("/fx-rates/nbp", { start_date: from, end_date: end, currencies: OVERVIEW_CURRENCIES });
-    end = moveDay(from, -1);
-  }
+/** One ≤93-day POST /fx-rates/nbp chunk (the existing NBPImport limit)
+ * covering `[from, end]`, `from` clamped to `floor`. Returns the end
+ * boundary for the *next* (earlier) chunk a caller should request. */
+async function loadChunk(floor: string, end: string): Promise<string> {
+  const from = [floor, moveDay(end, -92)].sort().at(-1)!;
+  await api.post("/fx-rates/nbp", { start_date: from, end_date: end, currencies: OVERVIEW_CURRENCIES });
+  return moveDay(from, -1);
 }
 
 function formatRate(value: string): string {
@@ -54,8 +48,25 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
   const query = useFxRatePeriodOverview(year, month);
   const data = query.data;
 
+  // Retrying after a failed chunk resumes at the exact interval that
+  // failed instead of re-requesting everything from `series_end` again —
+  // `cursorRef` only advances past a chunk once it has actually saved.
+  // Keyed by the period's own bounds so switching to a different
+  // year/month (a new series_start/series_end) starts fresh rather than
+  // resuming a now-irrelevant cursor.
+  const cursorRef = useRef<{ periodKey: string; end: string } | null>(null);
   const load = useMutation({
-    mutationFn: () => loadPeriodRates(data!.series_start, data!.series_end),
+    mutationFn: async () => {
+      const { series_start: seriesStart, series_end: seriesEnd } = data!;
+      const periodKey = `${seriesStart}_${seriesEnd}`;
+      const floor = [NBP_EPOCH, moveDay(seriesStart, -7)].sort().at(-1)!;
+      let end = cursorRef.current?.periodKey === periodKey ? cursorRef.current.end : seriesEnd;
+      while (end >= floor) {
+        end = await loadChunk(floor, end);
+        cursorRef.current = { periodKey, end };
+      }
+      cursorRef.current = null;
+    },
     onSuccess: () => cache.invalidateQueries({ queryKey: ["fx-rate-period-overview"] }),
   });
 
@@ -87,7 +98,11 @@ export function FxRateOverviewCard({ year, month }: FxRateOverviewCardProps) {
     return item.legs.map((leg) => `${leg.source.split(":")[0]} ${leg.rate_date}`).join(" · ");
   };
 
-  const hasGap = data.items.some((item) => item.value === null);
+  // A pair can have its headline value (latest mode only needs the very
+  // last day) while its own 30-day/period sparkline still has gaps —
+  // this must still offer the load action, not just an unavailable
+  // headline value.
+  const hasGap = data.items.some((item) => item.value === null || item.coverage_available_days < item.coverage_expected_days);
 
   return (
     <Card>

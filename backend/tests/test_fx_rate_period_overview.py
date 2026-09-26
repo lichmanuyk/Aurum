@@ -173,6 +173,26 @@ async def test_future_period_is_rejected(client):
     assert response.status_code == 422
 
 
+async def test_month_without_year_is_rejected_not_defaulted_to_the_current_year(client):
+    # Unlike the Dashboard summary route, this card only ever sends
+    # year/month together — a lone month must be an explicit 422, never a
+    # silent "current year" guess.
+    response = await client.get("/fx-rates/overview/period?month=5")
+    assert response.status_code == 422
+
+
+async def test_out_of_range_month_is_a_422_not_a_500(client):
+    for month in (0, 13, -1):
+        response = await client.get(f"/fx-rates/overview/period?year={date.today().year}&month={month}")
+        assert response.status_code == 422, (month, response.text)
+
+
+async def test_out_of_range_year_is_a_422_not_a_500(client):
+    for year in (1999, 2101):
+        response = await client.get(f"/fx-rates/overview/period?year={year}")
+        assert response.status_code == 422, (year, response.text)
+
+
 async def test_get_makes_no_writes_and_leaves_money_reports_untouched(client):
     today = date.today()
     await nbp_rate(client, "USD", today, "4.0000")

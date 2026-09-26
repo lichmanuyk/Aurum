@@ -142,3 +142,60 @@ it("renders nothing while there is no data yet, rather than a misleading empty c
   await mountCard();
   expect(container.textContent).toBe("");
 });
+
+it("still offers the load action when the headline value is available but the sparkline itself has a coverage gap", async () => {
+  await renderCard({
+    mode: "latest", label: "latest", start_date: null, end_date: "2026-09-25",
+    series_start: "2026-08-27", series_end: "2026-09-25",
+    items: [directPair({
+      // The *last* day resolved (so `value` is available), but most of
+      // the 30-day sparkline window behind it didn't — this must still
+      // surface the load action, not just an unavailable headline.
+      value: "4.1000", coverage_expected_days: 30, coverage_available_days: 3,
+    })],
+  });
+  expect(container.textContent).toMatch(/4[.,]1/);
+  expect(container.querySelector("button")?.textContent).toContain("Загрузить курсы за период");
+});
+
+it("resumes a failed multi-chunk load from the interval that failed, without re-requesting the already-saved one", async () => {
+  const overview = {
+    mode: "average", label: "average", start_date: "2024-01-01", end_date: "2024-12-31",
+    series_start: "2024-01-01", series_end: "2024-12-31",
+    items: [directPair({
+      value: null, unavailable_reason: "incomplete_coverage", legs: [],
+      series: [{ date: "2024-01-01", value: null }], coverage_expected_days: 366, coverage_available_days: 0,
+    })],
+  };
+  const nbpCalls: { start_date: string; end_date: string }[] = [];
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.includes("/fx-rates/overview/period")) {
+      return Promise.resolve(new Response(JSON.stringify(overview), { status: 200 }));
+    }
+    const body = JSON.parse(init!.body as string) as { start_date: string; end_date: string };
+    nbpCalls.push({ start_date: body.start_date, end_date: body.end_date });
+    // The second POST ever made fails; everything else succeeds — the
+    // very first chunk is already saved by the time the failure happens.
+    if (nbpCalls.length === 2) return Promise.resolve(new Response("Service unavailable", { status: 503 }));
+    return Promise.resolve(new Response(JSON.stringify({ saved: 0, protected: 0, absent_currencies: [] }), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  await mountCard();
+
+  const loadButton = container.querySelector("button")!;
+  await act(async () => { loadButton.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await settle();
+  expect(nbpCalls.length).toBe(2); // one saved chunk, then the failing one — the mutation stops there
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить курсы за период");
+  const savedChunk = { ...nbpCalls[0] };
+
+  await act(async () => { loadButton.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await settle();
+
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  // The chunk that already succeeded is never re-requested...
+  expect(nbpCalls.filter((c) => c.start_date === savedChunk.start_date && c.end_date === savedChunk.end_date)).toHaveLength(1);
+  // ...but the retry still picks up from where it failed and keeps going,
+  // covering the rest of the (multi-chunk, >93-day) period.
+  expect(nbpCalls.length).toBeGreaterThan(2);
+});
