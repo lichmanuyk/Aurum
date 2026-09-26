@@ -10,8 +10,11 @@ function useInvalidateNetWorth() {
   };
 }
 
-export function useAssets() {
-  return useQuery({ queryKey: ["assets"], queryFn: fetchAssets });
+/** `currency` should be the Net Worth section's own display currency (see
+ * useSectionCurrency) — that's what makes each asset's `capital_value`
+ * comparable to what the capital summary itself shows as "current". */
+export function useAssets(currency?: string) {
+  return useQuery({ queryKey: ["assets", currency], queryFn: () => fetchAssets(currency) });
 }
 
 export function useCreateAsset() {

@@ -1,8 +1,8 @@
 import { api } from "@/api/client";
 import type { Asset, AssetInput, AssetUpdateInput, AssetValuationInput } from "@/types";
 
-export function fetchAssets() {
-  return api.get<Asset[]>("/assets");
+export function fetchAssets(currency?: string) {
+  return api.get<Asset[]>(`/assets${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`);
 }
 
 export function createAsset(input: AssetInput) {

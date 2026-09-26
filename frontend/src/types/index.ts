@@ -235,6 +235,14 @@ export interface Asset {
   risk_level: RiskLevel;
   current_value: string;
   as_of_date: string;
+  // This asset's own contribution to the net worth summary — same
+  // FXConverter/date, so it's directly comparable across assets in
+  // different native currencies (native current_value/currency above are
+  // unchanged, still the native amount). `null` (with capital_value_error
+  // set) when there's nothing to convert, never a fabricated 0 or 1:1.
+  capital_value: string | null;
+  capital_currency: string;
+  capital_value_error: "no_valuation" | "fx_rate_missing" | null;
 }
 
 export interface AssetInput {

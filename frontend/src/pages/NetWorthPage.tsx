@@ -12,6 +12,7 @@ import { AssetsTable } from "@/components/networth/AssetsTable";
 import { AssetFormModal } from "@/components/networth/AssetFormModal";
 import { AssetMovementModal } from "@/components/networth/AssetMovementModal";
 import { AlertBanner } from "@/components/insights/AlertBanner";
+import { useSectionCurrency } from "@/lib/displayCurrency";
 import { useNetWorthSummary } from "@/hooks/useNetWorth";
 import { useAssets, useDeleteAsset } from "@/hooks/useAssets";
 import { useTranslation } from "@/lib/i18n";
@@ -23,8 +24,11 @@ export function NetWorthPage() {
   // briefly outpaces recorded income, which reads as decline even though
   // the long-run trend is up — 5y is long enough to make that trend visible.
   const [range, setRange] = useState<NetWorthRange>("5y");
+  const currency = useSectionCurrency();
   const { data: summary, isLoading: isSummaryLoading, error } = useNetWorthSummary(range);
-  const { data: assets, isLoading: isAssetsLoading } = useAssets();
+  // Same section currency the capital summary itself is shown in — each
+  // asset's capital_value below is then directly comparable to it.
+  const { data: assets, isLoading: isAssetsLoading } = useAssets(currency);
   const deleteAsset = useDeleteAsset();
 
   const [modalOpen, setModalOpen] = useState(false);

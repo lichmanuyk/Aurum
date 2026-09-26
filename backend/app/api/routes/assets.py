@@ -1,24 +1,39 @@
 from app.services.settings_service import get_or_create_app_settings
 from app.core.money import require_money
 from datetime import date
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_session
+from app.api.deps import get_reporting_session, get_session
 from app.models.asset import Asset, AssetValuation
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.asset import AssetCreate, AssetRead, AssetUpdate, AssetValuationCreate, AssetValuationRead
+from app.services.fx_service import FXConverter
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 _EAGER = (selectinload(Asset.valuations),)
 
 
-def _to_read(asset: Asset) -> AssetRead:
-    latest = next((v for v in reversed(asset.valuations) if v.as_of_date <= date.today()), None)
+def _to_read(asset: Asset, fx: FXConverter, today: date) -> AssetRead:
+    latest = next((v for v in reversed(asset.valuations) if v.as_of_date <= today), None)
+    capital_value: Decimal | None = None
+    capital_error: str | None = None
+    if latest is None:
+        # Never valued as of today (e.g. only a future-dated valuation
+        # exists) — no amount to convert, not a real zero.
+        capital_error = "no_valuation"
+    else:
+        try:
+            capital_value = fx.convert(latest.value, asset.currency, today)
+        except HTTPException:
+            # A missing FX rate is this one asset's problem, not the whole
+            # list's — every other asset still gets a usable equivalent.
+            capital_error = "fx_rate_missing"
     return AssetRead(
         id=asset.id,
         name=asset.name,
@@ -30,13 +45,19 @@ def _to_read(asset: Asset) -> AssetRead:
         risk_level=asset.risk_level,
         current_value=latest.value if latest else 0,
         as_of_date=latest.as_of_date if latest else asset.created_at.date(),
+        capital_value=capital_value,
+        capital_currency=fx.currency,
+        capital_value_error=capital_error,
     )
 
 
 @router.get("", response_model=list[AssetRead])
-async def list_assets(session: AsyncSession = Depends(get_session)) -> list[AssetRead]:
+async def list_assets(session: AsyncSession = Depends(get_reporting_session)) -> list[AssetRead]:
     result = await session.execute(select(Asset).options(*_EAGER).order_by(Asset.name))
-    return [_to_read(asset) for asset in result.scalars().all()]
+    assets = result.scalars().all()
+    fx = await FXConverter.load(session)
+    today = date.today()
+    return [_to_read(asset, fx, today) for asset in assets]
 
 
 @router.post("", response_model=AssetRead, status_code=201)
@@ -58,7 +79,7 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
-    return _to_read(refreshed.scalar_one())
+    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), date.today())
 
 
 @router.patch("/{asset_id}", response_model=AssetRead)
@@ -77,7 +98,7 @@ async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSessio
         setattr(asset, field, value)
     await session.commit()
     await session.refresh(asset, attribute_names=["valuations"])
-    return _to_read(asset)
+    return _to_read(asset, await FXConverter.load(session), date.today())
 
 
 @router.post("/{asset_id}/valuations", response_model=AssetRead)
@@ -105,7 +126,7 @@ async def add_asset_valuation(
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
-    return _to_read(refreshed.scalar_one())
+    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), date.today())
 
 
 @router.get("/{asset_id}/valuations", response_model=list[AssetValuationRead])
