@@ -29,6 +29,14 @@ class RecurringTransaction(Base, TimestampMixin):
         Enum(TransactionType, name="recurring_transaction_type", native_enum=False, length=10), nullable=False
     )
     amount: Mapped[Numeric] = mapped_column(Numeric(14, 2), nullable=False)
+    # Same optional asset classification as Transaction.expense_asset_id
+    # (see docs/tasks/property-expense-links.md) — only valid on an
+    # EXPENSE template. Posting copies it onto the created Transaction in
+    # the same atomic post (see services/recurring_service.post_recurring),
+    # so a recurring utility bill's payments are found the same way a
+    # one-off expense's would be. RESTRICT: deleting an asset with a linked
+    # template is blocked until the template's link is explicitly cleared.
+    expense_asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

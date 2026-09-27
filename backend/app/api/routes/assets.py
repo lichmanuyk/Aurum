@@ -2,21 +2,40 @@ from app.services.settings_service import get_or_create_app_settings
 from app.core.money import require_money
 from datetime import date
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_reporting_session, get_session
 from app.models.asset import Asset, AssetValuation
-from app.models.enums import TransactionType
-from app.models.transaction import Transaction
+from app.models.enums import AssetClass, TransactionType
+from app.models.recurring import RecurringTransaction
+from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.asset import AssetCreate, AssetRead, AssetUpdate, AssetValuationCreate, AssetValuationRead
+from app.schemas.asset_expense import AssetExpenseReport
+from app.services.asset_expense_service import get_asset_expense_report
 from app.services.fx_service import FXConverter
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 _EAGER = (selectinload(Asset.valuations),)
+
+
+async def _expense_link_blocker(session: AsyncSession, asset_id: int) -> str | None:
+    """Any of the three optional links onto this asset (see
+    docs/tasks/property-expense-links.md) — a plain expense, a split line,
+    or a recurring template. Shared by delete_asset (below) and
+    update_asset's own class-change guard: both need "does this asset
+    still have any link at all", just with a different message for the
+    caller to act on. Returns the first violation's message, or None."""
+    if await session.scalar(select(Transaction.id).where(Transaction.expense_asset_id == asset_id)):
+        return "Unlink expenses from this asset first"
+    if await session.scalar(select(TransactionSplit.id).where(TransactionSplit.expense_asset_id == asset_id)):
+        return "Unlink split expense lines from this asset first"
+    if await session.scalar(select(RecurringTransaction.id).where(RecurringTransaction.expense_asset_id == asset_id)):
+        return "Unlink recurring templates from this asset first"
+    return None
 
 
 def _to_read(asset: Asset, fx: FXConverter, today: date) -> AssetRead:
@@ -94,6 +113,17 @@ async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSessio
         raise HTTPException(409, "Asset currency cannot change after valuations exist")
     if payload.monthly_cash_flow is not None:
         require_money(payload.monthly_cash_flow, asset.currency)
+    # A crypto-class Asset row is always a CryptoHolding's own shell, never
+    # a valid expense-link target (see routes/transactions.py's own
+    # _ensure_expense_asset_valid) — reclassifying a *linked* asset to
+    # crypto would leave every existing link pointing at a target the
+    # backup importer's own validation (backup_service.py) already rejects
+    # outright, making the very next export unrestorable. Same "explicit
+    # unlink first" rule as deleting a linked asset (delete_asset below).
+    if payload.asset_class == AssetClass.CRYPTO and asset.asset_class != AssetClass.CRYPTO:
+        blocker = await _expense_link_blocker(session, asset_id)
+        if blocker:
+            raise HTTPException(409, f"{blocker} before reclassifying it as crypto")
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(asset, field, value)
     await session.commit()
@@ -140,6 +170,21 @@ async def list_asset_valuations(asset_id: int, session: AsyncSession = Depends(g
     return list(result.scalars().all())
 
 
+@router.get("/{asset_id}/expenses", response_model=AssetExpenseReport)
+async def get_asset_expenses(
+    asset_id: int,
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200),
+    session: AsyncSession = Depends(get_reporting_session),
+) -> AssetExpenseReport:
+    """Actual spending linked to one manually-tracked asset (property,
+    vehicle, ...) — see docs/tasks/property-expense-links.md. `currency` is
+    accepted the same way /assets already does, via get_reporting_session."""
+    return await get_asset_expense_report(session, asset_id, year, month, page, page_size)
+
+
 @router.delete("/{asset_id}", status_code=204)
 async def delete_asset(asset_id: int, session: AsyncSession = Depends(get_session)) -> None:
     asset = await session.get(Asset, asset_id)
@@ -150,5 +195,16 @@ async def delete_asset(asset_id: int, session: AsyncSession = Depends(get_sessio
         Transaction.type.in_((TransactionType.ASSET_BUY, TransactionType.ASSET_SELL)),
     )):
         raise HTTPException(409, "Delete linked asset movements before deleting the asset")
+    # An expense/split/template's *link* to this asset (see
+    # docs/tasks/property-expense-links.md) is a separate, additive concern
+    # from the atomic buy/sell movements checked above — deleting the asset
+    # must not silently erase that classification (or, for a split line,
+    # trip the ON DELETE RESTRICT FK as an opaque 500). The user has to
+    # explicitly unlink each one first (PATCH with expense_asset_id: null),
+    # same "explicit action, not a side effect" rule the link's own
+    # create/update path already follows.
+    blocker = await _expense_link_blocker(session, asset_id)
+    if blocker:
+        raise HTTPException(409, f"{blocker} before deleting it")
     await session.delete(asset)
     await session.commit()

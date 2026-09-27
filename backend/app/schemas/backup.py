@@ -59,6 +59,10 @@ class TransactionBackup(BaseModel):
     reporting_currency_override: str | None = None
     reporting_override_source: str | None = None
     asset_id: int | None = None
+    # Defaulted so a backup exported before this link existed (format < 10)
+    # still imports cleanly, with every transaction unlinked — see
+    # docs/tasks/property-expense-links.md and BACKUP_FORMAT_VERSION below.
+    expense_asset_id: int | None = None
     crypto_transaction_id: int | None = None
     asset_valuation_id: int | None = None
     gross_amount: Decimal | None = None
@@ -92,6 +96,9 @@ class TransactionSplitBackup(BaseModel):
     category_id: int | None
     amount: Decimal
     note: str | None
+    # Defaulted for the same reason as Transaction.expense_asset_id above —
+    # a pre-format-10 backup has no split-level link at all.
+    expense_asset_id: int | None = None
 
 
 class AssetBackup(BaseModel):
@@ -207,6 +214,9 @@ class RecurringTransactionBackup(BaseModel):
     account_id: int
     category_id: int | None
     transfer_account_id: int | None
+    # Defaulted for the same reason as Transaction.expense_asset_id above —
+    # a pre-format-10 backup has no template-level link at all.
+    expense_asset_id: int | None = None
     type: TransactionType
     amount: Decimal
     description: str

@@ -8,9 +8,14 @@ interface DialogProps extends PropsWithChildren {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
+  // "md" (default, unchanged) fits every existing form; "lg" is for a
+  // richer report-style view (e.g. an asset's own "Expenses" — see
+  // docs/tasks/property-expense-links.md) that needs room for a period
+  // picker plus a list, without widening every other dialog in the app.
+  size?: "md" | "lg";
 }
 
-export function Dialog({ open, onClose, title, children }: DialogProps) {
+export function Dialog({ open, onClose, title, children, size = "md" }: DialogProps) {
   const { t } = useTranslation();
   const titleId = useId();
 
@@ -36,7 +41,10 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-border bg-surface-1 p-5 shadow-xl sm:max-w-md sm:rounded-2xl"
+        className={cn(
+          "max-h-[90vh] w-full overflow-y-auto rounded-t-2xl border border-border bg-surface-1 p-5 shadow-xl sm:rounded-2xl",
+          size === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"
+        )}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

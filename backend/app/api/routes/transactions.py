@@ -12,8 +12,9 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_session
 from app.core.audit import log_destructive
+from app.models.asset import Asset
 from app.models.category import Category
-from app.models.enums import CategoryKind, TransactionType
+from app.models.enums import AssetClass, CategoryKind, TransactionType
 from app.models.tag import Tag
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.transaction import (
@@ -24,6 +25,7 @@ from app.schemas.transaction import (
     TransactionRead,
     TransactionSplitInput,
     TransactionUpdate,
+    expense_asset_link_violation,
     split_rule_violation,
     transfer_rule_violation,
 )
@@ -78,6 +80,22 @@ async def _ensure_category_matches_type(
     return category
 
 
+async def _ensure_expense_asset_valid(session: AsyncSession, asset_id: int | None) -> None:
+    """A link's target must actually exist and be a manually-tracked,
+    non-crypto asset (see docs/tasks/property-expense-links.md). Crypto-class
+    Asset rows are always a CryptoHolding's shell — a coin position with its
+    own buy/sell log, not something a utility bill's actual cash expense
+    could ever be "spending on"; linking one here would be nonsensical and
+    is rejected outright, same as an unknown id."""
+    if asset_id is None:
+        return
+    asset = await session.get(Asset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=400, detail="Linked asset not found")
+    if asset.asset_class == AssetClass.CRYPTO:
+        raise HTTPException(status_code=400, detail="Crypto assets cannot be linked to an expense")
+
+
 async def _build_splits(
     session: AsyncSession, splits: list[TransactionSplitInput], transaction_type: TransactionType, account_id: int
 ) -> list[TransactionSplit]:
@@ -98,12 +116,22 @@ async def _build_splits(
         category = await _ensure_category_matches_type(session, split.category_id, transaction_type)
         assert category is not None  # split.category_id is required (not Optional) on the schema
         top_level_ids.add(category.parent_id if category.parent_id is not None else category.id)
+        # A split's own asset link only makes sense for an expense line —
+        # transfers/adjustments already can't carry splits at all
+        # (split_rule_violation), so this only ever runs for income/expense;
+        # income has no asset-expense concept, so reject it there too.
+        if split.expense_asset_id is not None and transaction_type != TransactionType.EXPENSE:
+            raise HTTPException(status_code=400, detail="expense_asset_id is only valid for expense splits")
+        await _ensure_expense_asset_valid(session, split.expense_asset_id)
     if len(top_level_ids) > 1:
         raise HTTPException(
             status_code=400,
             detail="All split categories must be the same parent category or its direct subcategories",
         )
-    return [TransactionSplit(category_id=s.category_id, amount=s.amount, note=s.note) for s in splits]
+    return [
+        TransactionSplit(category_id=s.category_id, amount=s.amount, note=s.note, expense_asset_id=s.expense_asset_id)
+        for s in splits
+    ]
 
 
 @router.get("", response_model=TransactionPage)
@@ -218,6 +246,7 @@ async def list_transaction_years(session: AsyncSession = Depends(get_session)) -
 @router.post("", response_model=TransactionRead, status_code=201)
 async def create_transaction(payload: TransactionCreate, session: AsyncSession = Depends(get_session)) -> Transaction:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
+    await _ensure_expense_asset_valid(session, payload.expense_asset_id)
     fields = payload.model_dump(exclude={"tag_ids", "splits"})
     await validate_transaction(session, fields)
     transaction = Transaction(**fields)
@@ -241,6 +270,7 @@ async def bulk_create_transactions(
     instead of leaving a half-imported statement behind."""
     for item in payload.items:
         await _ensure_category_matches_type(session, item.category_id, item.type)
+        await _ensure_expense_asset_valid(session, item.expense_asset_id)
 
     transactions = []
     for item in payload.items:
@@ -320,6 +350,36 @@ async def update_transaction(
     )
     if split_violation:
         raise HTTPException(status_code=400, detail=split_violation)
+
+    # Same "row as it would look after the patch" check as transfer/split
+    # above: switching type away from expense, or turning a linked plain
+    # expense into a split one, can't silently leave a stale link behind —
+    # the caller must explicitly clear expense_asset_id (send null) or the
+    # request is rejected outright (docs/tasks/property-expense-links.md).
+    effective_expense_asset_id = updates.get("expense_asset_id", transaction.expense_asset_id)
+    asset_link_violation = expense_asset_link_violation(
+        type=effective_type, expense_asset_id=effective_expense_asset_id, split_count=split_count
+    )
+    if asset_link_violation:
+        raise HTTPException(status_code=400, detail=asset_link_violation)
+    if "expense_asset_id" in updates:
+        await _ensure_expense_asset_valid(session, updates["expense_asset_id"])
+    # A sparse patch that only changes `type` (splits omitted -> "leave
+    # them as they are") can't silently keep a *split line's own* link
+    # once the row is no longer an expense — expense_asset_link_violation
+    # above only ever checks the parent's own field, which is always None
+    # on a split transaction by construction, so it would never catch this
+    # on its own. The caller must resend `splits` (explicitly clearing or
+    # replacing each line's link) to change type away from expense; same
+    # "explicit action, not a side effect" rule as everywhere else in
+    # docs/tasks/property-expense-links.md.
+    if payload.splits is None and effective_type != TransactionType.EXPENSE and any(
+        split.expense_asset_id is not None for split in transaction.splits
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Resubmit splits (clearing or replacing each line's expense_asset_id) before changing type away from expense",
+        )
 
     fields = {column.name: getattr(transaction, column.name) for column in Transaction.__table__.columns}
     fields.update(updates)

@@ -34,7 +34,7 @@ def latest_backup(now=None):
     if not re.fullmatch(r'[0-9a-f]{64}', expected) or hashlib.sha256(raw).hexdigest() != expected:
         raise RuntimeError('Backup checksum mismatch')
     data = json.loads(raw)
-    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9) or not data.get('accounts') or not data.get('transactions'):
+    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9, 10) or not data.get('accounts') or not data.get('transactions'):
         raise RuntimeError('Backup format or financial history is unexpected')
     return path, raw, data
 
@@ -58,6 +58,18 @@ def compare(original, restored):
     if original.get('aurum_backup_version', 0) < 9 and isinstance(original.get('app_settings'), dict):
         for field in ('cash_flow_currency', 'reports_currency'):
             original['app_settings'].setdefault(field, None)
+    if original.get('aurum_backup_version', 0) < 10:
+        # Format 10 added the optional expense_asset_id link (see
+        # docs/tasks/property-expense-links.md) to three sections — an
+        # older backup has none of them at all, and restoring it must not
+        # report a false mismatch just because the re-export now carries
+        # them defaulted to null.
+        for row in original.get('transactions', []):
+            row.setdefault('expense_asset_id', None)
+        for row in original.get('transaction_splits', []):
+            row.setdefault('expense_asset_id', None)
+        for row in original.get('recurring_transactions', []):
+            row.setdefault('expense_asset_id', None)
     # A supported older file is re-exported using the current format version.
     original = {key: value for key, value in original.items() if key not in ('exported_at', 'aurum_backup_version')}
     restored = {key: value for key, value in restored.items() if key not in ('exported_at', 'aurum_backup_version')}

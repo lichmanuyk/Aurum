@@ -38,6 +38,17 @@ class RestoreCheckTests(unittest.TestCase):
             with patch.object(check_backup_restore, 'BACKUPS', root):
                 self.assertEqual(check_backup_restore.latest_backup(now)[1], raw)
 
+    def test_latest_backup_accepts_current_v10_format(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+            path = root / now.strftime('aurum-auto-%Y%m%dT%H%M%S%fZ.json')
+            raw = json.dumps({'aurum_backup_version': 10, 'accounts': [{}], 'transactions': [{}]}).encode()
+            path.write_bytes(raw)
+            path.with_suffix('.sha256').write_text(hashlib.sha256(raw).hexdigest() + '  ' + path.name)
+            with patch.object(check_backup_restore, 'BACKUPS', root):
+                self.assertEqual(check_backup_restore.latest_backup(now)[1], raw)
+
     def test_compare_checks_every_section_except_export_time(self):
         original = {'exported_at': 'a', 'aurum_backup_version': 6,
                     'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
@@ -92,6 +103,26 @@ class RestoreCheckTests(unittest.TestCase):
         check_backup_restore.compare(original, restored)
         restored_with_drift = {**restored, 'app_settings': {**restored['app_settings'], 'cash_flow_currency': 'PLN'}}
         with self.assertRaisesRegex(RuntimeError, 'app_settings'):
+            check_backup_restore.compare(original, restored_with_drift)
+
+    def test_compare_backfills_expense_asset_id_for_pre_v10_backups(self):
+        # A backup exported before the property-expense link existed has no
+        # expense_asset_id key on its transactions/splits/recurring rows at
+        # all — restoring it into a v10-capable app must not report a false
+        # mismatch just because the re-export now carries that key
+        # defaulted to null on every row (docs/tasks/property-expense-links.md).
+        original = {'exported_at': 'a', 'aurum_backup_version': 9,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
+                    'transaction_splits': [{'id': 3}], 'recurring_transactions': [{'id': 4}]}
+        restored = {**original, 'exported_at': 'b', 'aurum_backup_version': 10,
+                    'transactions': [{'id': 2, 'expense_asset_id': None}],
+                    'transaction_splits': [{'id': 3, 'expense_asset_id': None}],
+                    'recurring_transactions': [{'id': 4, 'expense_asset_id': None}]}
+        check_backup_restore.compare(original, restored)
+        # A genuine difference (a real link that failed to survive restore)
+        # must still fail.
+        restored_with_drift = {**restored, 'transactions': [{'id': 2, 'expense_asset_id': 7}]}
+        with self.assertRaisesRegex(RuntimeError, 'transactions'):
             check_backup_restore.compare(original, restored_with_drift)
 
     def test_compare_still_matches_v9_backups_verbatim(self):

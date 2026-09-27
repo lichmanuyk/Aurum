@@ -11,6 +11,7 @@ import { RiskAllocationCard } from "@/components/networth/RiskAllocationCard";
 import { AssetsTable } from "@/components/networth/AssetsTable";
 import { AssetFormModal } from "@/components/networth/AssetFormModal";
 import { AssetMovementModal } from "@/components/networth/AssetMovementModal";
+import { AssetExpensesModal } from "@/components/networth/AssetExpensesModal";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { useSectionCurrency } from "@/lib/displayCurrency";
 import { useNetWorthSummary } from "@/hooks/useNetWorth";
@@ -35,6 +36,8 @@ export function NetWorthPage() {
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [movementAssetId, setMovementAssetId] = useState<number | null>(null);
   const movementAsset = assets?.find((item) => item.id === movementAssetId) ?? null;
+  const [expensesAssetId, setExpensesAssetId] = useState<number | null>(null);
+  const expensesAsset = assets?.find((item) => item.id === expensesAssetId) ?? null;
 
   function openCreateModal() {
     setEditingAsset(null);
@@ -80,13 +83,20 @@ export function NetWorthPage() {
           {isAssetsLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
-            <AssetsTable items={assets ?? []} onEdit={openEditModal} onDelete={handleDelete} onMovement={(asset) => setMovementAssetId(asset.id)} />
+            <AssetsTable
+              items={assets ?? []}
+              onEdit={openEditModal}
+              onDelete={handleDelete}
+              onMovement={(asset) => setMovementAssetId(asset.id)}
+              onExpenses={(asset) => setExpensesAssetId(asset.id)}
+            />
           )}
         </CardContent>
       </Card>
 
       <AssetFormModal open={modalOpen} onClose={() => setModalOpen(false)} asset={editingAsset} />
       <AssetMovementModal open={movementAssetId !== null} onClose={() => setMovementAssetId(null)} asset={movementAsset} />
+      <AssetExpensesModal open={expensesAssetId !== null} onClose={() => setExpensesAssetId(null)} asset={expensesAsset} />
     </div>
   );
 }

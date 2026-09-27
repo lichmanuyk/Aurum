@@ -16,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.account import Account
+from app.models.asset import Asset
 from app.models.category import Category
-from app.models.enums import CategoryKind, RecurringFrequency, TransactionType
+from app.models.enums import AssetClass, CategoryKind, RecurringFrequency, TransactionType
 from app.models.recurring import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring import RecurringPost, RecurringTransactionCreate, RecurringTransactionRead, RecurringTransactionUpdate
@@ -48,6 +49,25 @@ async def _ensure_category_matches_type(
             status_code=400,
             detail=f"Category '{category.name}' is a {category.kind.value} category and cannot be used for a {transaction_type.value} recurring transaction",
         )
+
+
+async def _ensure_expense_asset_valid(
+    session: AsyncSession, asset_id: int | None, transaction_type: TransactionType
+) -> None:
+    """Same rule as routes/transactions.py's own `_ensure_expense_asset_valid`
+    plus one more: a template's link is only meaningful for an EXPENSE
+    template (a utility bill you post over and over) — income/transfer
+    templates keep no such concept, same as expense_asset_link_violation
+    for a one-off Transaction."""
+    if asset_id is None:
+        return
+    if transaction_type != TransactionType.EXPENSE:
+        raise HTTPException(status_code=400, detail="expense_asset_id is only valid for expense templates")
+    asset = await session.get(Asset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=400, detail="Linked asset not found")
+    if asset.asset_class == AssetClass.CRYPTO:
+        raise HTTPException(status_code=400, detail="Crypto assets cannot be linked to an expense template")
 
 
 def _advance(day: date_, frequency: RecurringFrequency) -> date_:
@@ -84,6 +104,7 @@ def _to_read(recurring: RecurringTransaction) -> RecurringTransactionRead:
         category_name=recurring.category.name if recurring.category else None,
         category_color=recurring.category.color if recurring.category else None,
         category_icon=recurring.category.icon if recurring.category else None,
+        expense_asset_id=recurring.expense_asset_id,
         transfer_account_id=recurring.transfer_account_id,
         transfer_account_name=recurring.transfer_account.name if recurring.transfer_account else None,
         type=recurring.type,
@@ -121,6 +142,7 @@ async def list_recurring(session: AsyncSession) -> list[RecurringTransactionRead
 
 async def create_recurring(session: AsyncSession, payload: RecurringTransactionCreate) -> RecurringTransactionRead:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
+    await _ensure_expense_asset_valid(session, payload.expense_asset_id, payload.type)
     await validate_transaction(session, payload.model_dump(), template=True)
     recurring = RecurringTransaction(**payload.model_dump())
     session.add(recurring)
@@ -139,6 +161,11 @@ async def update_recurring(
     effective_type = updates.get("type", recurring.type)
     effective_category_id = updates.get("category_id", recurring.category_id)
     await _ensure_category_matches_type(session, effective_category_id, effective_type)
+    # Same "row as it would look after the patch" rule as
+    # routes/transactions.py's update_transaction — switching a template
+    # away from EXPENSE can't silently keep a stale asset link.
+    effective_expense_asset_id = updates.get("expense_asset_id", recurring.expense_asset_id)
+    await _ensure_expense_asset_valid(session, effective_expense_asset_id, effective_type)
     fields = {column.name: getattr(recurring, column.name) for column in RecurringTransaction.__table__.columns}
     fields.update(updates)
     await validate_transaction(session, fields, template=True)
@@ -201,7 +228,11 @@ async def post_recurring(session: AsyncSession, recurring_id: int, payload: Recu
         if "account_id" in fields_set and account_override is None:
             raise HTTPException(422, "account_id cannot be null")
 
-    fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes")}
+    # expense_asset_id rides along unconditionally (not one of the payload
+    # overrides above) — a linked template always posts with that same
+    # link, same as its amount/account default to the template's own
+    # values (see docs/tasks/property-expense-links.md, contract item 5).
+    fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes", "expense_asset_id")}
     fields.update(date=today, destination_amount=destination_amount)
 
     if recurring.type == TransactionType.EXPENSE and account_override is not None:

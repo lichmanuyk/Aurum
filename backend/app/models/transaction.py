@@ -40,6 +40,20 @@ class Transaction(Base, TimestampMixin):
     # Set only for an atomic asset purchase/sale. The public generic
     # transaction routes cannot create or edit these linked ledger rows.
     asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
+    # An *additional*, optional classification of an ordinary EXPENSE row as
+    # upkeep/spending on a manually-tracked asset (property, vehicle, ...) —
+    # see docs/tasks/property-expense-links.md. Deliberately separate from
+    # asset_id above: that column belongs to an atomic buy/sell that moves
+    # money and the asset's own valuation in lockstep; this one never
+    # changes the account/amount/category/date or the asset's valuation,
+    # it just tags an existing expense. RESTRICT (not SET NULL) so deleting
+    # an asset with linked expenses fails with a clear 409 instead of
+    # silently erasing the classification (see routes/assets.py's
+    # delete_asset). Only valid when this row is a plain (non-split)
+    # EXPENSE — see schemas/transaction.py's expense_asset_link_violation —
+    # a split transaction links its *lines* instead (TransactionSplit's own
+    # column below), never both, so a linked amount is never counted twice.
+    expense_asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
     crypto_transaction_id: Mapped[int | None] = mapped_column(
         ForeignKey("crypto_transactions.id", ondelete="RESTRICT"), nullable=True
     )
@@ -85,6 +99,14 @@ class TransactionSplit(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     amount: Mapped[Numeric] = mapped_column(Numeric(18, 6), nullable=False)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # One split line's own optional link to a manually-tracked asset — see
+    # Transaction.expense_asset_id above for the full rationale. Living here
+    # too (rather than only on the parent) is what lets one split purchase
+    # cover several unrelated things (part groceries, part a car repair
+    # part) without double-counting: each line is its own classification,
+    # the parent's own column stays NULL whenever splits exist (enforced by
+    # expense_asset_link_violation).
+    expense_asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
 
     transaction: Mapped["Transaction"] = relationship(back_populates="splits")
     category: Mapped["Category | None"] = relationship()
