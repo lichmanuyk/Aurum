@@ -55,6 +55,25 @@ class RecurringFrequency(str, enum.Enum):
     YEARLY = "yearly"
 
 
+class MandatoryPaymentKind(str, enum.Enum):
+    """A self-employed user's own mandatory monthly payments in Poland — see
+    docs/tasks/income-tax-separation.md. Names the user's own bookkeeping
+    label, not a computed tax rule: this app never calculates what any of
+    these *should* be, only records what was actually paid. VAT is kept
+    under its own name even though the user's own historical records also
+    call the same monthly VAT declaration "VAT-7" (the Polish form number,
+    an old habit, not a distinct kind) — the free-text description field
+    is where that older label still lives if the user wants to keep typing
+    it; the classification itself only ever needs the three kinds below.
+    Deliberately a closed, tiny set (not a free-form string): expanding the
+    user's own reporting-currency-override "source" pattern here would let
+    a typo silently create a new, never-aggregated "kind" with no warning."""
+
+    ZUS = "zus"
+    PPE = "ppe"
+    VAT = "vat"
+
+
 class CryptoTransactionType(str, enum.Enum):
     OPENING = "opening"
     BUY = "buy"

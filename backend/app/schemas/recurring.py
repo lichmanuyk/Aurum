@@ -4,7 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.text import capitalize_first_letter
-from app.models.enums import RecurringFrequency, TransactionType
+from app.models.enums import MandatoryPaymentKind, RecurringFrequency, TransactionType
 
 
 class RecurringTransactionCreate(BaseModel):
@@ -18,6 +18,12 @@ class RecurringTransactionCreate(BaseModel):
     # onto the created Transaction unchanged; it never affects the
     # template's own amount/account or the asset's valuation.
     expense_asset_id: int | None = None
+    # Marks this EXPENSE template as always posting one specific mandatory
+    # payment — see Transaction.mandatory_payment_kind's docstring and
+    # docs/tasks/income-tax-separation.md. No period here: each posting's
+    # own assigned_period is supplied explicitly via RecurringPost below,
+    # never inferred. None/omitted -> an ordinary template, unchanged.
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     type: TransactionType
     amount: Decimal = Field(gt=0)
     description: str = Field(min_length=1, max_length=255)
@@ -42,6 +48,8 @@ class RecurringTransactionUpdate(BaseModel):
     # id -> set/replaced (same "explicit user action" contract as
     # Transaction.expense_asset_id's own update field).
     expense_asset_id: int | None = None
+    # Same "explicit user action" contract as expense_asset_id above.
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     description: str | None = Field(default=None, min_length=1, max_length=255)
@@ -68,6 +76,7 @@ class RecurringTransactionRead(BaseModel):
     category_color: str | None
     category_icon: str | None
     expense_asset_id: int | None
+    mandatory_payment_kind: MandatoryPaymentKind | None
     transfer_account_id: int | None
     transfer_account_name: str | None
     type: TransactionType
@@ -97,3 +106,10 @@ class RecurringPost(BaseModel):
     destination_amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
     amount: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
     account_id: int | None = None
+    # Required exactly when the template being posted has its own
+    # mandatory_payment_kind set (a ZUS/PPE/VAT template) — the month this
+    # posting's payment is *for*, independent of `date` (always today —
+    # see services/recurring_service.py). Rejected outright, never
+    # silently ignored or defaulted, when sent for any other template: see
+    # docs/tasks/income-tax-separation.md.
+    assigned_period: date_ | None = None

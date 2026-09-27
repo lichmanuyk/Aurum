@@ -9,7 +9,7 @@ import { useCategories } from "@/hooks/useCategories";
 import { useCreateRecurring, useUpdateRecurring } from "@/hooks/useRecurring";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
-import type { RecurringFrequency, RecurringTransaction, TransactionType } from "@/types";
+import type { MandatoryPaymentKind, RecurringFrequency, RecurringTransaction, TransactionType } from "@/types";
 
 interface RecurringFormModalProps {
   open: boolean;
@@ -26,6 +26,10 @@ const EMPTY_FORM = {
   // docs/tasks/property-expense-links.md) — posting copies it onto the
   // created Transaction unchanged.
   expense_asset_id: "",
+  // Marks this EXPENSE template as always posting one specific mandatory
+  // payment — see docs/tasks/income-tax-separation.md. No period here:
+  // supplied explicitly at each "Post now" instead (RecurringPaymentModal).
+  mandatory_payment_kind: null as MandatoryPaymentKind | null,
   amount: "",
   description: "",
   merchant: "",
@@ -56,6 +60,7 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
         category_id: recurring.category_id ? String(recurring.category_id) : "",
         transfer_account_id: recurring.transfer_account_id ? String(recurring.transfer_account_id) : "",
         expense_asset_id: recurring.expense_asset_id ? String(recurring.expense_asset_id) : "",
+        mandatory_payment_kind: recurring.mandatory_payment_kind,
         amount: recurring.amount,
         description: recurring.description,
         merchant: recurring.merchant ?? "",
@@ -111,6 +116,7 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
       // sends null, which both means "no link" on create and explicitly
       // clears an existing one on update.
       expense_asset_id: form.type === "expense" && form.expense_asset_id ? Number(form.expense_asset_id) : null,
+      mandatory_payment_kind: form.type === "expense" ? form.mandatory_payment_kind : null,
       amount: form.amount,
       description: form.description,
       merchant: form.merchant || null,
@@ -151,8 +157,10 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
                   category_id: "",
                   // A link only ever makes sense for an expense template —
                   // switching away clears it here too (see
-                  // docs/tasks/property-expense-links.md).
+                  // docs/tasks/property-expense-links.md). Same for the
+                  // mandatory-tax kind (docs/tasks/income-tax-separation.md).
                   expense_asset_id: nextType === "expense" ? prev.expense_asset_id : "",
+                  mandatory_payment_kind: nextType === "expense" ? prev.mandatory_payment_kind : null,
                 }));
               }}
             >
@@ -281,7 +289,7 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
           </div>
         )}
 
-        {form.type === "expense" && (
+        {form.type === "expense" && !form.mandatory_payment_kind && (
           <div>
             <Label htmlFor="recurring-expense-asset">{t("transactions.form.expenseAssetLabel")}</Label>
             <ExpenseAssetSelect
@@ -289,6 +297,27 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
               value={form.expense_asset_id}
               onChange={(value) => setForm((prev) => ({ ...prev, expense_asset_id: value }))}
             />
+          </div>
+        )}
+
+        {form.type === "expense" && !form.expense_asset_id && (
+          <div>
+            <Label htmlFor="recurring-mandatory-kind">{t("transactions.form.mandatoryPaymentLabel")}</Label>
+            <Select
+              id="recurring-mandatory-kind"
+              value={form.mandatory_payment_kind ?? ""}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, mandatory_payment_kind: (event.target.value || null) as MandatoryPaymentKind | null }))
+              }
+            >
+              <option value="">{t("transactions.form.mandatoryPaymentNone")}</option>
+              <option value="zus">{t("transactions.form.mandatoryPaymentZus")}</option>
+              <option value="ppe">{t("transactions.form.mandatoryPaymentPpe")}</option>
+              <option value="vat">{t("transactions.form.mandatoryPaymentVat")}</option>
+            </Select>
+            {form.mandatory_payment_kind && (
+              <p className="mt-1 text-xs text-text-muted">{t("recurring.form.mandatoryPaymentHint")}</p>
+            )}
           </div>
         )}
 

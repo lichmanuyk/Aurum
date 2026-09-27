@@ -5,7 +5,7 @@ budget_exceeded proactive alert (services/insights_service.py)."""
 
 from app.core.money import require_money
 from app.services.fx_service import FXConverter
-from app.services.money_service import transactions_for_reporting
+from app.services.money_service import ordinary_lines, transactions_for_reporting
 from app.services.settings_service import get_or_create_app_settings
 import calendar
 from collections import defaultdict
@@ -104,7 +104,11 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
     # A split transaction has category_id=NULL on its own row — its spend
     # lives on its split lines instead (see category_rollup.py), so a plain
     # sum on Transaction.category_id alone would silently under-count a
-    # budget funded partly by split purchases.
+    # budget funded partly by split purchases. ordinary_lines
+    # (money_service.py) also excludes a mandatory tax payment's own
+    # line(s) — see docs/tasks/income-tax-separation.md — so a ZUS/PPE/VAT
+    # payment never counts against an ordinary spending budget, even one
+    # set on the same category it happens to be filed under.
     fx = await FXConverter.load(session)
     rows = await transactions_for_reporting(session, start, end, TransactionType.EXPENSE)
     spent_by_currency = {}
@@ -115,7 +119,7 @@ async def get_budget_status(session: AsyncSession, year: int, month: int) -> Bud
         for tx in rows:
             if tx.category_id not in counted_ids and not any(line.category_id in counted_ids for line in tx.splits):
                 continue
-            lines = fx.splits(tx, currency) if tx.splits else [(tx.category_id, fx.transaction(tx, currency))]
+            lines = ordinary_lines(tx, fx, currency)
             for category_id, amount in lines:
                 totals[category_id] += amount
         spent_by_currency[currency] = totals

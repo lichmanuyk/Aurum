@@ -24,6 +24,11 @@ export interface RecurringPostOverrides {
   // stored amount/account never change, only what gets posted this once.
   amount?: string;
   account_id?: number;
+  // Required exactly when the template has its own mandatory_payment_kind
+  // set (a ZUS/PPE/VAT template) — which month this posting is *for*,
+  // independent of the real posting date. See
+  // docs/tasks/income-tax-separation.md.
+  assigned_period?: string;
 }
 
 export function postRecurring(id: number, overrides: RecurringPostOverrides = {}) {

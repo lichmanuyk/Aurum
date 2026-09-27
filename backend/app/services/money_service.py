@@ -69,6 +69,57 @@ async def transactions_for_reporting(session, start=None, end=None, transaction_
     return (await session.scalars(stmt)).all()
 
 
+def ordinary_lines(tx, fx, target=None):
+    """(category_id, amount) pairs for this transaction's non-tax lines only
+    — same shape as the `fx.splits(tx) if tx.splits else [(tx.category_id,
+    fx.transaction(tx))]` pattern every category-based report already used
+    before mandatory-tax classification existed (see
+    docs/tasks/income-tax-separation.md), minus whatever
+    mandatory_payment_kind marks as not ordinary spending.
+
+    A plain EXPENSE row classified as a mandatory tax payment contributes
+    nothing here at all; a split transaction's tax-classified *lines* are
+    dropped individually, so its other, ordinary lines (a mixed purchase)
+    still count in full. INCOME/other types are never tax-classified
+    (mandatory_payment_kind is EXPENSE-only, enforced by
+    tax_classification_violation) — this is a no-op for them, so every
+    caller that already loops over both income and expense rows (e.g.
+    reports_service.get_category_spending_report) can use one function
+    regardless of type rather than branching on it itself.
+    """
+    if tx.splits:
+        return [
+            (split.category_id, amount)
+            for split, (_, amount) in zip(tx.splits, fx.splits(tx, target))
+            if split.mandatory_payment_kind is None
+        ]
+    if tx.mandatory_payment_kind is not None:
+        return []
+    return [(tx.category_id, fx.transaction(tx, target))]
+
+
+def mandatory_tax_amount(tx, fx, target=None):
+    """The mandatory-tax counterpart to ordinary_lines above — this
+    transaction's real, already-FX-converted cash spent on a classified
+    ZUS/PPE/VAT payment, combining every kind into one number (per-kind
+    detail lives in the dedicated Income & Taxes report, not here). Every
+    other caller in this app that sums a whole EXPENSE transaction's
+    `fx.transaction(tx)` unconditionally (net worth, account balances,
+    Cash Flow's own real total) is deliberately untouched by this: the real
+    money still left the account exactly as it always did — this function
+    only feeds the *separate*, explicitly-labeled breakdown a caller
+    chooses to also show alongside that real total, never a replacement
+    for it."""
+    from decimal import Decimal
+
+    if tx.splits:
+        return sum(
+            (amount for split, (_, amount) in zip(tx.splits, fx.splits(tx, target)) if split.mandatory_payment_kind is not None),
+            Decimal("0"),
+        )
+    return fx.transaction(tx, target) if tx.mandatory_payment_kind is not None else Decimal("0")
+
+
 async def native_balances(session, as_of=None):
     from collections import defaultdict
     balances = defaultdict(Decimal)

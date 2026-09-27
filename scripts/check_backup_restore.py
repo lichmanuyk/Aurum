@@ -76,7 +76,7 @@ def latest_backup(now=None):
     if not re.fullmatch(r'[0-9a-f]{64}', expected) or hashlib.sha256(raw).hexdigest() != expected:
         raise RuntimeError('Backup checksum mismatch')
     data = json.loads(raw)
-    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9, 10) or not data.get('accounts') or not data.get('transactions'):
+    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9, 10, 11) or not data.get('accounts') or not data.get('transactions'):
         raise RuntimeError('Backup format or financial history is unexpected')
     return path, raw, data
 
@@ -112,6 +112,18 @@ def compare(original, restored):
             row.setdefault('expense_asset_id', None)
         for row in original.get('recurring_transactions', []):
             row.setdefault('expense_asset_id', None)
+    if original.get('aurum_backup_version', 0) < 11:
+        # Format 11 added the optional gross-income/mandatory-tax
+        # classification (see docs/tasks/income-tax-separation.md) to the
+        # same three sections, same reasoning as format 10 above.
+        for row in original.get('transactions', []):
+            row.setdefault('assigned_period', None)
+            row.setdefault('mandatory_payment_kind', None)
+        for row in original.get('transaction_splits', []):
+            row.setdefault('assigned_period', None)
+            row.setdefault('mandatory_payment_kind', None)
+        for row in original.get('recurring_transactions', []):
+            row.setdefault('mandatory_payment_kind', None)
     # A supported older file is re-exported using the current format version.
     original = {key: value for key, value in original.items() if key not in ('exported_at', 'aurum_backup_version')}
     restored = {key: value for key, value in restored.items() if key not in ('exported_at', 'aurum_backup_version')}

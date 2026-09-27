@@ -13,6 +13,7 @@ from app.models.enums import (
     CapitalRole,
     CategoryKind,
     CryptoTransactionType,
+    MandatoryPaymentKind,
     RecurringFrequency,
     RiskLevel,
     TransactionType,
@@ -63,6 +64,11 @@ class TransactionBackup(BaseModel):
     # still imports cleanly, with every transaction unlinked — see
     # docs/tasks/property-expense-links.md and BACKUP_FORMAT_VERSION below.
     expense_asset_id: int | None = None
+    # Defaulted so a backup exported before this classification existed
+    # (format < 11) still imports cleanly, with every transaction
+    # unclassified — see docs/tasks/income-tax-separation.md.
+    assigned_period: date_ | None = None
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     crypto_transaction_id: int | None = None
     asset_valuation_id: int | None = None
     gross_amount: Decimal | None = None
@@ -99,6 +105,10 @@ class TransactionSplitBackup(BaseModel):
     # Defaulted for the same reason as Transaction.expense_asset_id above —
     # a pre-format-10 backup has no split-level link at all.
     expense_asset_id: int | None = None
+    # Defaulted for the same reason as Transaction.assigned_period above —
+    # a pre-format-11 backup has no split-level classification at all.
+    assigned_period: date_ | None = None
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
 
 
 class AssetBackup(BaseModel):
@@ -217,6 +227,9 @@ class RecurringTransactionBackup(BaseModel):
     # Defaulted for the same reason as Transaction.expense_asset_id above —
     # a pre-format-10 backup has no template-level link at all.
     expense_asset_id: int | None = None
+    # Defaulted for the same reason — a pre-format-11 backup has no
+    # template-level mandatory_payment_kind at all.
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     type: TransactionType
     amount: Decimal
     description: str

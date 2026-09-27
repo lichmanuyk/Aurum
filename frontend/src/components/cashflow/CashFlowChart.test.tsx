@@ -10,11 +10,12 @@ const cashFlow: CashFlowResponse = {
   start_date: "2026-01-01",
   end_date: "2026-02-28",
   points: [
-    { year: 2026, month: 1, income: "1000", expense: "400", net: "600" },
-    { year: 2026, month: 2, income: "1100", expense: "450", net: "650" },
+    { year: 2026, month: 1, income: "1000", expense: "400", tax_expense: "0", net: "600" },
+    { year: 2026, month: 2, income: "1100", expense: "450", tax_expense: "0", net: "650" },
   ],
   total_income: "2100",
   total_expense: "850",
+  total_tax_expense: "0",
   total_net: "1250",
 };
 

@@ -6,7 +6,7 @@ categories of one kind at once, not just the current month).
 """
 
 from app.services.fx_service import FXConverter
-from app.services.money_service import transactions_for_reporting
+from app.services.money_service import ordinary_lines, transactions_for_reporting
 from collections import defaultdict
 from datetime import date as date_
 from decimal import Decimal
@@ -52,6 +52,12 @@ async def get_category_spending_report(
     # Plain transactions filed directly under one of these categories, plus
     # split lines that assign part of a transaction to one of them — same
     # two sources category_rollup.py unions for the Dashboard/ranking report.
+    # ordinary_lines (money_service.py) also excludes a mandatory tax
+    # payment's own line(s) — see docs/tasks/income-tax-separation.md — so
+    # this single-category trend stays consistent with that same "ordinary
+    # spending only" rule even for a category a tax payment happens to also
+    # use, rather than silently including it here while every other
+    # category-based report excludes it.
     fx = await FXConverter.load(session)
     contributions = []
     for tx in await transactions_for_reporting(session, start_date, end_date):
@@ -59,7 +65,7 @@ async def get_category_spending_report(
             continue
         if tx.category_id not in category_ids and not any(line.category_id in category_ids for line in tx.splits):
             continue
-        lines = fx.splits(tx) if tx.splits else [(tx.category_id, fx.transaction(tx))]
+        lines = ordinary_lines(tx, fx)
         contributions.extend((tx.id, tx.date, amount) for cat_id, amount in lines if cat_id in category_ids)
 
     empty = CategorySpendingReport(

@@ -55,7 +55,7 @@ from app.schemas.backup import (
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 10
+BACKUP_FORMAT_VERSION = 11
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -246,7 +246,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -387,7 +387,7 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
 
 def _validate_money_backup(payload):
     """Preflight runs before deletes; v1 unresolved facts are preserved, never guessed."""
-    from app.schemas.transaction import transfer_rule_violation
+    from app.schemas.transaction import tax_classification_violation, transfer_rule_violation
     from collections import defaultdict
     accounts = {a.id: a for a in payload.accounts}
     try:
@@ -445,6 +445,15 @@ def _validate_money_backup(payload):
                     raise ValueError("expense_asset_id is only valid for expense recurring templates")
                 if assets[row.expense_asset_id].asset_class == AssetClass.CRYPTO:
                     raise ValueError("Crypto assets cannot be linked to a recurring template")
+            if row.mandatory_payment_kind is not None:
+                # Template-level equivalent of tax_classification_violation
+                # below — no assigned_period is stored on a template (see
+                # models/recurring.py), so only the "which type, not
+                # together with a property link" half applies here.
+                if row.type != TransactionType.EXPENSE:
+                    raise ValueError("mandatory_payment_kind is only valid for expense recurring templates")
+                if row.expense_asset_id is not None:
+                    raise ValueError("A recurring template cannot be both a mandatory tax payment and a property expense")
         for row in payload.crypto_transactions:
             if row.quote_currency is not None:
                 currency_code(row.quote_currency)
@@ -532,6 +541,12 @@ def _validate_money_backup(payload):
                     raise ValueError("expense_asset_id is only valid on a non-split expense")
                 if assets[tx.expense_asset_id].asset_class == AssetClass.CRYPTO:
                     raise ValueError("Crypto assets cannot be linked to an expense")
+            violation = tax_classification_violation(
+                type=tx.type, assigned_period=tx.assigned_period, mandatory_payment_kind=tx.mandatory_payment_kind,
+                expense_asset_id=tx.expense_asset_id, split_count=len(splits[tx.id]),
+            )
+            if violation:
+                raise ValueError(violation)
             if splits[tx.id]:
                 if len(splits[tx.id]) < 2 or tx.category_id is not None or sum(s.amount for s in splits[tx.id]) != tx.amount:
                     raise ValueError("Invalid split total")
@@ -544,5 +559,12 @@ def _validate_money_backup(payload):
                             raise ValueError("expense_asset_id is only valid for expense splits")
                         if assets[split.expense_asset_id].asset_class == AssetClass.CRYPTO:
                             raise ValueError("Crypto assets cannot be linked to an expense")
+                    split_violation = tax_classification_violation(
+                        type=tx.type, assigned_period=split.assigned_period,
+                        mandatory_payment_kind=split.mandatory_payment_kind,
+                        expense_asset_id=split.expense_asset_id, split_count=0,
+                    )
+                    if split_violation:
+                        raise ValueError(split_violation)
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc

@@ -41,6 +41,10 @@ interface ChartPoint {
   key: string;
   income: number;
   expense: number;
+  // Already included in `expense` above — see docs/tasks/
+  // income-tax-separation.md and CashFlowPoint.tax_expense's own docstring;
+  // shown alongside it, never subtracted a second time.
+  tax_expense: number;
   net: number;
 }
 
@@ -49,6 +53,7 @@ function ChartTooltip({
   payload,
   incomeLabel,
   expenseLabel,
+  taxExpenseLabel,
   netLabel,
   formatCurrency,
   formatSignedCurrency,
@@ -59,6 +64,7 @@ function ChartTooltip({
   payload?: Array<{ payload: ChartPoint }>;
   incomeLabel: string;
   expenseLabel: string;
+  taxExpenseLabel: string;
   netLabel: string;
   formatCurrency: (amount: number | string) => string;
   formatSignedCurrency: (amount: number | string) => string;
@@ -78,6 +84,11 @@ function ChartTooltip({
       {showExpense && (
         <p className="text-danger">
           {expenseLabel}: {formatCurrency(point.expense)}
+        </p>
+      )}
+      {showExpense && point.tax_expense > 0 && (
+        <p className="text-text-muted">
+          {taxExpenseLabel}: {formatCurrency(point.tax_expense)}
         </p>
       )}
       <p className="font-medium text-text-primary">
@@ -117,6 +128,7 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
   const { formatCurrency, formatSignedCurrency } = useSectionFormat();
   const incomeLabel = t("cashFlow.income");
   const expenseLabel = t("cashFlow.expense");
+  const taxExpenseLabel = t("cashFlow.taxExpense");
   const netLabel = t("cashFlow.net");
   // Visual-only — hides/shows bars, never affects what's fetched, summed or
   // shown as the total above (see cashFlow.totalHint below).
@@ -128,6 +140,7 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
       key: monthKey(point.year, point.month),
       income: Number(point.income),
       expense: Number(point.expense),
+      tax_expense: Number(point.tax_expense),
       net: Number(point.net),
     })) ?? [];
   const yearTicks = computeYearTicks(chartData.map((point) => point.key));
@@ -151,6 +164,17 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
                 <span className="font-medium text-danger">
                   {expenseLabel} {formatCurrency(cashFlow.total_expense)}
                 </span>
+                {Number(cashFlow.total_tax_expense) > 0 && (
+                  <>
+                    <span className="text-text-muted"> · </span>
+                    {/* Already counted inside total_expense above — an
+                        explicit breakdown, not a second deduction. See
+                        docs/tasks/income-tax-separation.md. */}
+                    <span className="font-medium text-text-muted">
+                      {taxExpenseLabel} {formatCurrency(cashFlow.total_tax_expense)}
+                    </span>
+                  </>
+                )}
               </p>
               <p className="mt-0.5 text-xs text-text-muted">{t("cashFlow.totalHint")}</p>
             </>
@@ -188,7 +212,7 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
                 )}
                 <Tooltip
                   content={<ChartTooltip
-                    incomeLabel={incomeLabel} expenseLabel={expenseLabel} netLabel={netLabel}
+                    incomeLabel={incomeLabel} expenseLabel={expenseLabel} taxExpenseLabel={taxExpenseLabel} netLabel={netLabel}
                     formatCurrency={formatCurrency} formatSignedCurrency={formatSignedCurrency}
                     showIncome={showIncome} showExpense={showExpense}
                   />}

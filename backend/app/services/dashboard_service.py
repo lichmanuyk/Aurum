@@ -1,7 +1,7 @@
 """Aggregation logic behind the Overview dashboard."""
 
 from app.services.fx_service import FXConverter
-from app.services.money_service import transactions_for_reporting
+from app.services.money_service import mandatory_tax_amount, ordinary_lines, transactions_for_reporting
 import calendar
 from datetime import date
 from decimal import Decimal
@@ -42,15 +42,25 @@ async def get_dashboard_summary(session: AsyncSession, year: int | None, month: 
     start, end = _resolve_bounds(year, month)
 
     fx = await FXConverter.load(session)
-    totals = {}
+    real_income = Decimal("0")
+    # "Ordinary" only — a mandatory tax payment (ZUS/PPE/VAT) is real cash
+    # that really left an account, but it gets its own separate, explicit
+    # total below instead of hiding inside this one — see
+    # docs/tasks/income-tax-separation.md. `net` further down still
+    # subtracts both, so it stays the same real cash figure as before this
+    # split existed; only the breakdown feeding the donut/percentages
+    # changes.
+    spent = Decimal("0")
+    mandatory_payments_paid = Decimal("0")
+    transferred_out = Decimal("0")
     for tx in await transactions_for_reporting(session, start, end):
-        if tx.type not in (TransactionType.INCOME, TransactionType.EXPENSE, TransactionType.TRANSFER):
-            continue
-        totals[tx.type] = totals.get(tx.type, Decimal(0)) + fx.transaction(tx)
-
-    real_income = totals.get(TransactionType.INCOME, Decimal("0"))
-    spent = totals.get(TransactionType.EXPENSE, Decimal("0"))
-    transferred_out = totals.get(TransactionType.TRANSFER, Decimal("0"))
+        if tx.type == TransactionType.INCOME:
+            real_income += fx.transaction(tx)
+        elif tx.type == TransactionType.EXPENSE:
+            spent += sum((amount for _, amount in ordinary_lines(tx, fx)), Decimal("0"))
+            mandatory_payments_paid += mandatory_tax_amount(tx, fx)
+        elif tx.type == TransactionType.TRANSFER:
+            transferred_out += fx.transaction(tx)
 
     # A subcategory's spending rolls up into its parent's slice, and a split
     # transaction's category_id=NULL means its category lives on its split
@@ -98,7 +108,8 @@ async def get_dashboard_summary(session: AsyncSession, year: int | None, month: 
         end_date=end,
         real_income=real_income,
         spent=spent,
-        net=real_income - spent,
+        mandatory_payments_paid=mandatory_payments_paid,
+        net=real_income - spent - mandatory_payments_paid,
         transferred_out=transferred_out,
         spending_by_category=spending_by_category,
     )

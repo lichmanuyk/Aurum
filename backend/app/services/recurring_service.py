@@ -23,6 +23,7 @@ from app.models.enums import AssetClass, CategoryKind, RecurringFrequency, Trans
 from app.models.recurring import RecurringTransaction
 from app.models.transaction import Transaction
 from app.schemas.recurring import RecurringPost, RecurringTransactionCreate, RecurringTransactionRead, RecurringTransactionUpdate
+from app.schemas.transaction import tax_classification_violation
 
 _EAGER = (
     selectinload(RecurringTransaction.account),
@@ -71,6 +72,27 @@ async def _ensure_expense_asset_valid(
         raise HTTPException(status_code=400, detail="Crypto assets cannot be linked to an expense template")
 
 
+def _ensure_mandatory_payment_kind_valid(
+    transaction_type: TransactionType, mandatory_payment_kind, expense_asset_id: int | None
+) -> None:
+    """A template-level equivalent of tax_classification_violation
+    (schemas/transaction.py) for the one field a RecurringTransaction
+    actually stores (see models/recurring.py's own docstring) — no
+    assigned_period here, so only the "which type, and not together with a
+    property link" half of that rule applies; the "both fields together"
+    and "no future month" halves only make sense once an actual
+    assigned_period exists, at post time (see post_recurring below)."""
+    if mandatory_payment_kind is None:
+        return
+    if transaction_type != TransactionType.EXPENSE:
+        raise HTTPException(status_code=400, detail="mandatory_payment_kind is only valid for expense templates")
+    if expense_asset_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="A template cannot be classified as both a mandatory tax payment and a property expense",
+        )
+
+
 def _advance(day: date_, frequency: RecurringFrequency) -> date_:
     if frequency == RecurringFrequency.WEEKLY:
         return day + timedelta(days=7)
@@ -106,6 +128,7 @@ def _to_read(recurring: RecurringTransaction) -> RecurringTransactionRead:
         category_color=recurring.category.color if recurring.category else None,
         category_icon=recurring.category.icon if recurring.category else None,
         expense_asset_id=recurring.expense_asset_id,
+        mandatory_payment_kind=recurring.mandatory_payment_kind,
         transfer_account_id=recurring.transfer_account_id,
         transfer_account_name=recurring.transfer_account.name if recurring.transfer_account else None,
         type=recurring.type,
@@ -144,6 +167,7 @@ async def list_recurring(session: AsyncSession) -> list[RecurringTransactionRead
 async def create_recurring(session: AsyncSession, payload: RecurringTransactionCreate) -> RecurringTransactionRead:
     await _ensure_category_matches_type(session, payload.category_id, payload.type)
     await _ensure_expense_asset_valid(session, payload.expense_asset_id, payload.type)
+    _ensure_mandatory_payment_kind_valid(payload.type, payload.mandatory_payment_kind, payload.expense_asset_id)
     await validate_transaction(session, payload.model_dump(), template=True)
     recurring = RecurringTransaction(**payload.model_dump())
     session.add(recurring)
@@ -167,6 +191,8 @@ async def update_recurring(
     # away from EXPENSE can't silently keep a stale asset link.
     effective_expense_asset_id = updates.get("expense_asset_id", recurring.expense_asset_id)
     await _ensure_expense_asset_valid(session, effective_expense_asset_id, effective_type)
+    effective_mandatory_payment_kind = updates.get("mandatory_payment_kind", recurring.mandatory_payment_kind)
+    _ensure_mandatory_payment_kind_valid(effective_type, effective_mandatory_payment_kind, effective_expense_asset_id)
     fields = {column.name: getattr(recurring, column.name) for column in RecurringTransaction.__table__.columns}
     fields.update(updates)
     await validate_transaction(session, fields, template=True)
@@ -217,6 +243,7 @@ async def post_recurring(session: AsyncSession, recurring_id: int, payload: Recu
     destination_amount = payload.destination_amount if payload else None
     amount_override = payload.amount if payload else None
     account_override = payload.account_id if payload else None
+    assigned_period = payload.assigned_period if payload else None
 
     if recurring.type != TransactionType.EXPENSE:
         # Income/transfer keep today's exact prior behavior — an override
@@ -229,12 +256,35 @@ async def post_recurring(session: AsyncSession, recurring_id: int, payload: Recu
         if "account_id" in fields_set and account_override is None:
             raise HTTPException(422, "account_id cannot be null")
 
-    # expense_asset_id rides along unconditionally (not one of the payload
-    # overrides above) — a linked template always posts with that same
-    # link, same as its amount/account default to the template's own
-    # values (see docs/tasks/property-expense-links.md, contract item 5).
-    fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes", "expense_asset_id")}
-    fields.update(date=today, destination_amount=destination_amount)
+    # assigned_period is the one override that's *required*, not optional,
+    # for a mandatory-tax template — see RecurringPost.assigned_period's own
+    # docstring and docs/tasks/income-tax-separation.md. Never silently
+    # defaulted to today's own month: an old missed template posted late
+    # (say, in October for September's ZUS) must not quietly land under
+    # October just because the caller forgot to say which month it's for,
+    # and a caller must say so explicitly every single time, not just once.
+    if recurring.mandatory_payment_kind is not None:
+        if "assigned_period" not in fields_set or assigned_period is None:
+            raise HTTPException(422, "assigned_period is required when posting a mandatory tax template")
+    elif "assigned_period" in fields_set and assigned_period is not None:
+        raise HTTPException(422, "assigned_period is only valid when posting a mandatory tax template")
+    tax_violation = tax_classification_violation(
+        type=recurring.type,
+        assigned_period=assigned_period,
+        mandatory_payment_kind=recurring.mandatory_payment_kind,
+        expense_asset_id=recurring.expense_asset_id,
+        split_count=0,
+    )
+    if tax_violation:
+        raise HTTPException(422, tax_violation)
+
+    # expense_asset_id/mandatory_payment_kind ride along unconditionally
+    # (not one of the payload overrides above) — a linked/tax template
+    # always posts with that same classification, same as its
+    # amount/account default to the template's own values (see
+    # docs/tasks/property-expense-links.md, contract item 5).
+    fields = {key: getattr(recurring, key) for key in ("account_id", "category_id", "transfer_account_id", "type", "amount", "description", "merchant", "notes", "expense_asset_id", "mandatory_payment_kind")}
+    fields.update(date=today, destination_amount=destination_amount, assigned_period=assigned_period)
 
     if recurring.type == TransactionType.EXPENSE and account_override is not None:
         account = await session.get(Account, account_override)

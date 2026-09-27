@@ -14,7 +14,7 @@ one correct total.
 """
 
 from app.services.fx_service import FXConverter
-from app.services.money_service import transactions_for_reporting
+from app.services.money_service import ordinary_lines, transactions_for_reporting
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date as date_
@@ -75,11 +75,17 @@ async def _raw_category_contributions(
     contributes one row (its own category); a split one contributes one row
     per split line — never both for the same transaction, since a
     transaction is either plain (category_id set, no splits) or split
-    (category_id NULL, 2+ splits), enforced at write time."""
+    (category_id NULL, 2+ splits), enforced at write time.
+
+    A mandatory tax payment's own line(s) are excluded — see
+    money_service.ordinary_lines and docs/tasks/income-tax-separation.md:
+    this rollup feeds the Dashboard's category donut and the Reports
+    ranking, both explicitly "ordinary spending only" now that a ZUS/PPE/
+    VAT payment has its own separate, explicit display instead."""
     fx = await FXConverter.load(session)
     contributions = []
     for tx in await transactions_for_reporting(session, start_date, end_date, transaction_type):
-        lines = fx.splits(tx) if tx.splits else [(tx.category_id, fx.transaction(tx))]
+        lines = ordinary_lines(tx, fx)
         contributions.extend((tx.id, category_id, amount) for category_id, amount in lines if category_id is not None)
     return contributions
 

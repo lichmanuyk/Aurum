@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useInvalidateRecurring, usePostRecurring } from "@/hooks/useRecurring";
+import { monthInputToPeriod } from "@/lib/period";
 import { useTranslation } from "@/lib/i18n";
 import type { RecurringTransaction } from "@/types";
 
@@ -28,6 +29,11 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
 
   const [accountId, setAccountId] = useState("");
   const [amount, setAmount] = useState("");
+  // Required exactly when the template has its own mandatory_payment_kind
+  // (a ZUS/PPE/VAT template) — see docs/tasks/income-tax-separation.md and
+  // RecurringPost.assigned_period's own docstring. Never defaulted to the
+  // current month: the user must pick it explicitly every time.
+  const [assignedPeriod, setAssignedPeriod] = useState("");
   const [currencyChanged, setCurrencyChanged] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Retrying is pointless once the server has told us *why* — either the
@@ -40,6 +46,7 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
     if (!open || !recurring) return;
     setAccountId(String(recurring.account_id));
     setAmount(recurring.amount);
+    setAssignedPeriod("");
     setCurrencyChanged(false);
     setError(null);
     setBlocked(false);
@@ -49,6 +56,7 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
   // TS doesn't retain the null-narrowing above inside nested closures
   // (handleSubmit is defined further down) — a local const does.
   const recurringId = recurring.id;
+  const mandatoryPaymentKind = recurring.mandatory_payment_kind;
 
   const selectedCurrency = accounts?.find((account) => String(account.id) === accountId)?.currency ?? recurring.currency;
 
@@ -79,9 +87,18 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
       setError(t("recurring.payment.currencyChanged"));
       return;
     }
+    if (mandatoryPaymentKind && !assignedPeriod) {
+      setError(t("recurring.payment.assignedPeriodRequired"));
+      return;
+    }
 
     try {
-      await postRecurring.mutateAsync({ id: recurringId, amount, account_id: Number(accountId) });
+      await postRecurring.mutateAsync({
+        id: recurringId,
+        amount,
+        account_id: Number(accountId),
+        ...(mandatoryPaymentKind ? { assigned_period: monthInputToPeriod(assignedPeriod) ?? undefined } : {}),
+      });
       onClose();
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
@@ -128,6 +145,20 @@ export function RecurringPaymentModal({ open, onClose, recurring }: RecurringPay
             {currencyChanged ? t("recurring.payment.currencyChanged") : t("recurring.payment.amountHint")}
           </p>
         </div>
+
+        {recurring.mandatory_payment_kind && (
+          <div>
+            <Label htmlFor="recurring-payment-period">{t("transactions.form.assignedPeriodLabel")}</Label>
+            <Input
+              id="recurring-payment-period"
+              type="month"
+              required
+              value={assignedPeriod}
+              onChange={(event) => setAssignedPeriod(event.target.value)}
+            />
+            <p className="mt-1 text-xs text-text-muted">{t("recurring.payment.assignedPeriodHint")}</p>
+          </div>
+        )}
 
         <div>
           <Label htmlFor="recurring-payment-account">{t("transactions.form.accountLabel")}</Label>

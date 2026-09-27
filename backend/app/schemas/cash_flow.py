@@ -9,7 +9,14 @@ class CashFlowPoint(BaseModel):
     year: int
     month: int
     income: Decimal
+    # Every real cash EXPENSE this month, mandatory tax payments included —
+    # unchanged in meaning from before mandatory-tax classification existed
+    # (see docs/tasks/income-tax-separation.md).
     expense: Decimal
+    # This same month's share of `expense` that was a classified ZUS/PPE/
+    # VAT payment — an explicit breakdown, not a second deduction: it is
+    # already included in `expense` above, never subtracted from it.
+    tax_expense: Decimal
     net: Decimal
 
 
@@ -21,4 +28,5 @@ class CashFlowResponse(BaseModel):
     points: list[CashFlowPoint]
     total_income: Decimal
     total_expense: Decimal
+    total_tax_expense: Decimal
     total_net: Decimal
