@@ -171,6 +171,51 @@ it("never offers a stale payment for a previous asset at the very first render o
   expect(container.textContent).not.toContain("Old template A payment");
 });
 
+it("switching A -> B -> back to A never resurrects A's own payment on its own", async () => {
+  // The synchronous validPayment guard alone only hides a stale payment
+  // while looking at the *other* asset — without the [open, asset?.id]
+  // effect below also clearing payingTemplate itself when the asset
+  // actually changes, going back to the *original* asset would find that
+  // untouched state object matching validPayment's own check again and
+  // silently reopen a payment the user never resumed.
+  stubFetch({
+    1: report({ items: [], templates: [TEMPLATE_A] }),
+    2: report({ asset_id: 2, items: [], templates: [] }),
+  });
+  const queryClient = await mount(ASSET); // asset A (id 1)
+
+  const payButton = [...container.querySelectorAll("button")]
+    .find((b) => /Провести платёж|Post now/.test(b.textContent ?? ""));
+  act(() => { payButton!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const paymentTitle = /Оплата: Old template A payment|Payment: Old template A payment/;
+  expect(container.textContent).toMatch(paymentTitle);
+
+  // Switch to asset B and let the reset effect actually run.
+  act(() => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <AssetExpensesModal open asset={OTHER_ASSET} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+  });
+  await settle();
+  expect(container.textContent).not.toMatch(paymentTitle);
+
+  // Switch back to the original asset A.
+  act(() => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <AssetExpensesModal open asset={ASSET} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+  });
+  await settle();
+  // The template is still legitimately listed (same asset, same link) —
+  // only its payment must not have reopened by itself.
+  expect(container.textContent).toContain("Old template A payment");
+  expect(container.textContent).not.toMatch(paymentTitle);
+});
+
 it("clears a pending payment once this dialog closes (open -> false), not only lazily on the next open", async () => {
   // Defense-in-depth: today's only wiring (NetWorthPage) always closes
   // through handleClose, which already clears this synchronously — this

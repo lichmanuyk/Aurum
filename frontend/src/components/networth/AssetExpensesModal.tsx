@@ -45,11 +45,23 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
   // Every fresh open starts on "all time" for whichever asset was picked —
   // switching assets (or reopening) never keeps a stale period/page from a
   // previous look, matching Dashboard's own "always starts here" rule.
+  // payingTemplate is reset here too: this component instance persists
+  // across an asset prop change (NetWorthPage doesn't remount it per
+  // asset), and a plain click on "Pay" never changes `open`/`asset?.id`
+  // itself, so this effect never fires *during* a normal payment attempt —
+  // only when the asset being looked at actually changes (or reopens),
+  // which is exactly when an old payingTemplate needs to stop lingering in
+  // state. The synchronous `validPayment` guard below already keeps that
+  // stale value from ever being *shown* for the wrong asset even for the
+  // one render before this effect runs; this is what stops it from being
+  // able to resurface later if the user navigates back to the asset it
+  // actually belonged to.
   useEffect(() => {
     if (!open) return;
     setYear(null);
     setMonth(null);
     setPage(1);
+    setPayingTemplate(null);
   }, [open, asset?.id]);
 
   // Clears a pending payment the moment this dialog itself closes — via
