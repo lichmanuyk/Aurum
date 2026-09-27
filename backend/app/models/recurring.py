@@ -10,7 +10,7 @@ from sqlalchemy import Boolean, Date, Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import RecurringFrequency, TransactionType
+from app.models.enums import MandatoryPaymentKind, RecurringFrequency, TransactionType
 from app.models.mixins import TimestampMixin
 
 
@@ -37,6 +37,19 @@ class RecurringTransaction(Base, TimestampMixin):
     # one-off expense's would be. RESTRICT: deleting an asset with a linked
     # template is blocked until the template's link is explicitly cleared.
     expense_asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id", ondelete="RESTRICT"), nullable=True)
+    # Marks this EXPENSE template as always posting one specific mandatory
+    # payment (ZUS/PPE/VAT) — see docs/tasks/income-tax-separation.md and
+    # Transaction.mandatory_payment_kind's own docstring. Unlike that
+    # column's sibling assigned_period, no period is stored here: each
+    # month's actual assigned_period is supplied explicitly at "Post now"
+    # time (RecurringPost.assigned_period below), never inferred from the
+    # template or silently advanced — see services/recurring_service.py.
+    # Mutually exclusive with expense_asset_id, same conflict rule as a
+    # plain Transaction.
+    mandatory_payment_kind: Mapped[MandatoryPaymentKind | None] = mapped_column(
+        Enum(MandatoryPaymentKind, name="recurring_mandatory_payment_kind", native_enum=False, length=10),
+        nullable=True,
+    )
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     merchant: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

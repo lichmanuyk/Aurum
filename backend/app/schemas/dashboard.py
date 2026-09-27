@@ -46,7 +46,18 @@ class DashboardSummary(BaseModel):
     start_date: date_ | None
     end_date: date_
     real_income: Decimal
+    # Ordinary spending only — a mandatory tax payment (ZUS/PPE/VAT) is
+    # excluded here and shown separately below instead, so this no longer
+    # includes 100% of real cash spent (see mandatory_payments_paid and
+    # docs/tasks/income-tax-separation.md). spending_by_category is
+    # ordinary-only for the same reason.
     spent: Decimal
+    # Real cash paid this period on a classified ZUS/PPE/VAT payment,
+    # combining every kind into one number — per-kind detail is in the
+    # dedicated Income & Taxes report, not here.
+    mandatory_payments_paid: Decimal
+    # Still the same real cash figure as before mandatory_payments_paid
+    # existed: real_income - spent - mandatory_payments_paid.
     net: Decimal
     transferred_out: Decimal
     spending_by_category: list[CategoryBreakdownItem]

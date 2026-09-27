@@ -32,6 +32,14 @@ export function useInvalidateRecurring() {
       queryClient.invalidateQueries({ queryKey: ["financial-alerts"] });
       queryClient.invalidateQueries({ queryKey: ["advice"] });
       queryClient.invalidateQueries({ queryKey: ["cash-flow"] });
+      // A posted mandatory-tax template's payment (see
+      // docs/tasks/income-tax-separation.md) needs its own explicit
+      // assigned_period every time (services/recurring_service.py) — the
+      // Income & Taxes report must refresh right alongside every other
+      // total above, including the ALREADY_POSTED lost-response recovery
+      // path (RecurringPaymentModal.tsx), which calls this same function
+      // with the same argument.
+      queryClient.invalidateQueries({ queryKey: ["income-tax"] });
     }
   };
 }

@@ -7,8 +7,9 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.clock import business_today
 from app.core.text import capitalize_first_letter
-from app.models.enums import TransactionType
+from app.models.enums import MandatoryPaymentKind, TransactionType
 from app.schemas.account import AccountRead
 from app.schemas.category import CategoryRead
 from app.schemas.tag import TagRead
@@ -68,6 +69,52 @@ def expense_asset_link_violation(
     return None
 
 
+def tax_classification_violation(
+    *,
+    type: TransactionType,
+    assigned_period: date_ | None,
+    mandatory_payment_kind: MandatoryPaymentKind | None,
+    expense_asset_id: int | None,
+    split_count: int,
+) -> str | None:
+    """The gross-income/mandatory-tax invariants in one place — see
+    docs/tasks/income-tax-separation.md and Transaction.assigned_period's
+    own docstring. Same shape and reuse pattern as
+    expense_asset_link_violation above: called once against a plain
+    (non-split) row with split_count=0, and once per split line with
+    split_count=0 again (a line is never itself split further) but the
+    *parent's* row checked with its real split_count, so a split parent can
+    never carry either field itself — only its lines can.
+
+    Neither field ever changes account/amount/date/currency or creates a
+    second Transaction; this only decides whether the combination the
+    caller is about to save makes sense at all.
+    """
+    if assigned_period is None and mandatory_payment_kind is None:
+        return None
+    if assigned_period is not None and assigned_period.day != 1:
+        return "assigned_period must be the first day of its month"
+    if assigned_period is not None:
+        today = business_today()
+        if (assigned_period.year, assigned_period.month) > (today.year, today.month):
+            return "assigned_period cannot be in the future"
+    if type not in (TransactionType.INCOME, TransactionType.EXPENSE):
+        return "assigned_period is only valid for income or expense transactions"
+    if split_count > 0:
+        return "assigned_period/mandatory_payment_kind cannot be set on a split transaction's parent; classify its split lines instead"
+    if type == TransactionType.INCOME:
+        if mandatory_payment_kind is not None:
+            return "mandatory_payment_kind is only valid for expense transactions"
+        return None
+    # EXPENSE: both or neither — a bare period with no kind (or vice versa)
+    # is ambiguous, not a smaller, still-useful fact.
+    if assigned_period is None or mandatory_payment_kind is None:
+        return "a mandatory tax expense needs both assigned_period and mandatory_payment_kind"
+    if expense_asset_id is not None:
+        return "a transaction cannot be classified as both a mandatory tax payment and a property expense"
+    return None
+
+
 def split_rule_violation(
     *,
     type: TransactionType,
@@ -120,6 +167,14 @@ class TransactionFields(BaseModel):
     # None/omitted here means "no link"; a split transaction links its
     # lines instead (see TransactionSplitInput.expense_asset_id below).
     expense_asset_id: int | None = None
+    # The month (first day) this row's *earnings* belong to — see
+    # tax_classification_violation above and Transaction.assigned_period's
+    # own docstring. None/omitted -> not classified (an ordinary income or
+    # expense, unchanged from before this existed).
+    assigned_period: date_ | None = None
+    # Which mandatory payment this EXPENSE is (ZUS/PPE/VAT) — always paired
+    # with assigned_period above; never valid on INCOME.
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     type: TransactionType
     adjustment_reason: AdjustmentReason | None = None
     amount: Decimal = Field(max_digits=18, decimal_places=6)
@@ -163,6 +218,11 @@ class TransactionSplitInput(BaseModel):
     # expense_asset_link_violation's docstring above for why a split's
     # lines carry the link instead of the parent.
     expense_asset_id: int | None = None
+    # This line's own optional gross-income/mandatory-tax classification —
+    # same "parent XOR lines" reasoning as expense_asset_id just above; see
+    # tax_classification_violation.
+    assigned_period: date_ | None = None
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
 
 
 class TransactionCreate(TransactionBase):
@@ -191,6 +251,25 @@ class TransactionCreate(TransactionBase):
         )
         if asset_violation:
             raise ValueError(asset_violation)
+        tax_violation = tax_classification_violation(
+            type=self.type,
+            assigned_period=self.assigned_period,
+            mandatory_payment_kind=self.mandatory_payment_kind,
+            expense_asset_id=self.expense_asset_id,
+            split_count=len(splits),
+        )
+        if tax_violation:
+            raise ValueError(tax_violation)
+        for split in splits:
+            split_violation = tax_classification_violation(
+                type=self.type,
+                assigned_period=split.assigned_period,
+                mandatory_payment_kind=split.mandatory_payment_kind,
+                expense_asset_id=split.expense_asset_id,
+                split_count=0,
+            )
+            if split_violation:
+                raise ValueError(split_violation)
         return self
 
 
@@ -211,6 +290,15 @@ class TransactionUpdate(BaseModel):
     # docs/tasks/property-expense-links.md, never an implicit side effect
     # of some other field changing.
     expense_asset_id: int | None = None
+    # Omitted -> the existing classification (if any) is left untouched.
+    # Explicit null -> cleared. Explicit value -> set/replaced — same
+    # "explicit user action" contract as expense_asset_id above. Both
+    # fields are always sent/cleared together by the frontend, but the API
+    # itself allows patching either alone (e.g. correcting just the kind);
+    # the row *as it would look after the patch* is what
+    # tax_classification_violation checks (see routes/transactions.py).
+    assigned_period: date_ | None = None
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
     type: TransactionType | None = None
     adjustment_reason: AdjustmentReason | None = None
     amount: Decimal | None = Field(default=None, max_digits=18, decimal_places=6)
@@ -240,6 +328,8 @@ class TransactionSplitRead(BaseModel):
     amount: Decimal
     note: str | None
     expense_asset_id: int | None = None
+    assigned_period: date_ | None = None
+    mandatory_payment_kind: MandatoryPaymentKind | None = None
 
 
 class TransactionRead(TransactionFields):

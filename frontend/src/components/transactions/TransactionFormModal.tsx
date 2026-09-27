@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { TagInput } from "@/components/transactions/TagInput";
 import { ExpenseAssetSelect } from "@/components/transactions/ExpenseAssetSelect";
+import { MandatoryPaymentFields } from "@/components/transactions/MandatoryPaymentFields";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useCategories } from "@/hooks/useCategories";
@@ -14,7 +15,7 @@ import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransacti
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import { formatCurrency } from "@/lib/format";
-import type { Tag, Transaction, TransactionInput, TransactionSplitInput, TransactionType, AdjustmentReason } from "@/types";
+import type { Tag, Transaction, TransactionInput, TransactionSplitInput, TransactionType, AdjustmentReason, MandatoryPaymentKind } from "@/types";
 
 interface TransactionFormModalProps {
   open: boolean;
@@ -45,6 +46,11 @@ const EMPTY_FORM = {
   // docs/tasks/property-expense-links.md). A split's lines carry their own
   // link instead (SplitRowState.expense_asset_id below).
   expense_asset_id: "",
+  // Gross-income/mandatory-tax classification — see
+  // docs/tasks/income-tax-separation.md. Same "parent only while not
+  // splitting" shape as expense_asset_id above.
+  assigned_period: null as string | null,
+  mandatory_payment_kind: null as MandatoryPaymentKind | null,
 };
 
 interface SplitRowState {
@@ -53,6 +59,8 @@ interface SplitRowState {
   amount: string;
   note: string;
   expense_asset_id: string;
+  assigned_period: string | null;
+  mandatory_payment_kind: MandatoryPaymentKind | null;
 }
 
 // crypto.randomUUID() only exists in secure contexts (HTTPS/localhost) — on plain
@@ -67,7 +75,15 @@ function generateRowKey(): string {
 }
 
 function emptySplitRow(): SplitRowState {
-  return { key: generateRowKey(), category_id: "", amount: "", note: "", expense_asset_id: "" };
+  return {
+    key: generateRowKey(),
+    category_id: "",
+    amount: "",
+    note: "",
+    expense_asset_id: "",
+    assigned_period: null,
+    mandatory_payment_kind: null,
+  };
 }
 
 // Cents, not floats — a plain Number sum of "0.10" + "0.20" style amounts can
@@ -128,6 +144,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         notes: transaction.notes ?? "",
         date: transaction.date,
         expense_asset_id: transaction.expense_asset_id ? String(transaction.expense_asset_id) : "",
+        assigned_period: transaction.assigned_period ?? null,
+        mandatory_payment_kind: transaction.mandatory_payment_kind ?? null,
       });
       setTags(transaction.tags);
       setSplitMode(hasSplits);
@@ -139,6 +157,8 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               amount: split.amount,
               note: split.note ?? "",
               expense_asset_id: split.expense_asset_id ? String(split.expense_asset_id) : "",
+              assigned_period: split.assigned_period ?? null,
+              mandatory_payment_kind: split.mandatory_payment_kind ?? null,
             }))
           : [emptySplitRow(), emptySplitRow()]
       );
@@ -212,10 +232,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         if (current?.parent_id) {
           setForm((f) => ({ ...f, category_id: String(current.parent_id) }));
         }
-        // The parent's own link and a split's lines are mutually exclusive
-        // (expense_asset_link_violation) — entering split mode clears the
-        // parent's link; each line gets its own picker instead.
-        setForm((f) => ({ ...f, expense_asset_id: "" }));
+        // The parent's own link/classification and a split's lines are
+        // mutually exclusive (expense_asset_link_violation,
+        // tax_classification_violation) — entering split mode clears the
+        // parent's; each line gets its own picker instead.
+        setForm((f) => ({ ...f, expense_asset_id: "", assigned_period: null, mandatory_payment_kind: null }));
         setSplitRows([emptySplitRow(), emptySplitRow()]);
       }
       return next;
@@ -279,6 +300,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         // render above), this is the belt-and-suspenders guard so a
         // lingering value from before a type switch can never be sent.
         expense_asset_id: form.type === "expense" && row.expense_asset_id ? Number(row.expense_asset_id) : null,
+        // Same "each line carries its own" reasoning, for the gross-
+        // income/mandatory-tax classification — see
+        // docs/tasks/income-tax-separation.md.
+        assigned_period: row.assigned_period,
+        mandatory_payment_kind: form.type === "expense" ? row.mandatory_payment_kind : null,
       }));
     } else if (transaction && transaction.splits.length > 0) {
       splits = [];
@@ -306,6 +332,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
       date: form.date,
       tag_ids: tags.map((tag) => tag.id),
       splits,
+      // Only a plain (non-split) income/expense row can carry this on the
+      // parent (tax_classification_violation) — a split sends null on the
+      // parent, same "explicit clear" contract as expense_asset_id below.
+      assigned_period: splits && splits.length > 0 ? null : form.assigned_period,
+      mandatory_payment_kind: splits && splits.length > 0 ? null : form.mandatory_payment_kind,
       // Only a plain (non-split) expense can carry this on the parent row
       // (expense_asset_link_violation) — anything else always sends null,
       // which both creates "no link" and explicitly clears an existing one
@@ -349,17 +380,27 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               // still be split (unlike transfer/adjustment), so its split
               // *rows* need their own links cleared too, not just the
               // parent's — otherwise an income transaction's splits would
-              // silently keep carrying an expense-only field.
+              // silently keep carrying an expense-only field. The gross-
+              // income/mandatory-tax classification (see
+              // docs/tasks/income-tax-separation.md) is cleared on every
+              // type change too, on both the parent and each split row —
+              // simplest way to never carry a stale combination (an
+              // expense's kind into income, or either into a
+              // transfer/adjustment) across a type switch; re-enabling it
+              // for the new type is one click.
               setForm((prev) => ({
                 ...prev,
                 type: nextType,
                 category_id: "",
                 expense_asset_id: nextType === "expense" ? prev.expense_asset_id : "",
+                assigned_period: null,
+                mandatory_payment_kind: null,
               }));
               if (nextType === "transfer" || nextType === "adjustment") setSplitMode(false);
               if (nextType !== "expense") {
                 setSplitRows((prev) => prev.map((row) => ({ ...row, expense_asset_id: "" })));
               }
+              setSplitRows((prev) => prev.map((row) => ({ ...row, assigned_period: null, mandatory_payment_kind: null })));
             }}
           >
             <option value="expense">{t("transactions.form.typeExpense")}</option>
@@ -495,13 +536,26 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               ))}
             </Select>
 
-            {form.type === "expense" && !splitMode && (
+            {form.type === "expense" && !splitMode && !form.mandatory_payment_kind && (
               <div className="mt-2">
                 <Label htmlFor="expense-asset">{t("transactions.form.expenseAssetLabel")}</Label>
                 <ExpenseAssetSelect
                   id="expense-asset"
                   value={form.expense_asset_id}
                   onChange={(value) => setForm((prev) => ({ ...prev, expense_asset_id: value }))}
+                />
+              </div>
+            )}
+
+            {(form.type === "income" || form.type === "expense") && !splitMode && !form.expense_asset_id && (
+              <div className="mt-2">
+                <MandatoryPaymentFields
+                  type={form.type}
+                  idPrefix="transaction"
+                  assignedPeriod={form.assigned_period}
+                  onAssignedPeriodChange={(value) => setForm((prev) => ({ ...prev, assigned_period: value }))}
+                  mandatoryPaymentKind={form.mandatory_payment_kind}
+                  onMandatoryPaymentKindChange={(value) => setForm((prev) => ({ ...prev, mandatory_payment_kind: value }))}
                 />
               </div>
             )}
@@ -571,12 +625,29 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                         offered there; the type-switch handler above also
                         clears any link already entered before the type
                         changed. */}
-                    {form.type === "expense" && (
+                    {form.type === "expense" && !row.mandatory_payment_kind && (
                       <ExpenseAssetSelect
                         className="text-xs"
                         aria-label={t("transactions.form.expenseAssetLabel")}
                         value={row.expense_asset_id}
                         onChange={(value) => updateSplitRow(row.key, { expense_asset_id: value })}
+                      />
+                    )}
+                    {/* Same classification as the parent row (see
+                        MandatoryPaymentFields) — each split line's own
+                        share of a mixed purchase (part ordinary, part a
+                        mandatory tax payment or gross work income) can
+                        carry it independently. Hidden once this line has
+                        an asset link (mutually exclusive, same as the
+                        parent) — clear that first to classify it instead. */}
+                    {!row.expense_asset_id && (
+                      <MandatoryPaymentFields
+                        type={form.type}
+                        idPrefix={`split-${row.key}`}
+                        assignedPeriod={row.assigned_period}
+                        onAssignedPeriodChange={(value) => updateSplitRow(row.key, { assigned_period: value })}
+                        mandatoryPaymentKind={row.mandatory_payment_kind}
+                        onMandatoryPaymentKindChange={(value) => updateSplitRow(row.key, { mandatory_payment_kind: value })}
                       />
                     )}
                   </div>

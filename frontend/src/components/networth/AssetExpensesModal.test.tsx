@@ -28,7 +28,7 @@ const OTHER_ASSET: Asset = { ...ASSET, id: 2, name: "Synthetic car" };
 const TEMPLATE_A: RecurringTransaction = {
   destination_currency: null, currency: "USD", id: 5, account_id: 1, account_name: "Checking",
   category_id: null, category_name: null, category_color: null, category_icon: null,
-  expense_asset_id: ASSET.id, transfer_account_id: null, transfer_account_name: null, type: "expense",
+  expense_asset_id: ASSET.id, mandatory_payment_kind: null, transfer_account_id: null, transfer_account_name: null, type: "expense",
   amount: "20.00", description: "Old template A payment", merchant: null, notes: null, frequency: "monthly",
   anchor_date: "2026-01-01", last_posted_date: null, is_active: true, next_due_date: "2026-09-01",
   is_due: true, days_until_due: 0,

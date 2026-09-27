@@ -5,7 +5,7 @@ accounts are excluded from both totals, same as the Dashboard breakdown.
 """
 
 from app.services.fx_service import FXConverter
-from app.services.money_service import transactions_for_reporting
+from app.services.money_service import mandatory_tax_amount, transactions_for_reporting
 from collections import defaultdict
 from datetime import date as date_
 from decimal import Decimal
@@ -46,15 +46,28 @@ async def get_cash_flow(
         points=[],
         total_income=Decimal("0"),
         total_expense=Decimal("0"),
+        total_tax_expense=Decimal("0"),
         total_net=Decimal("0"),
     )
     if effective_start is None or effective_end is None:
         return empty
 
     by_month = defaultdict(lambda: defaultdict(Decimal))
+    # tax_by_month is keyed by the transaction's own real cash date, same as
+    # `expense` above — this app's one "second time axis" is
+    # assigned_period on the row itself (see docs/tasks/
+    # income-tax-separation.md), never a substitute for the real date real
+    # money actually moved on. A mandatory tax payment already counts
+    # inside `expense` too (it really is part of real cash spent this
+    # month) — tax_expense is an *additional*, explicitly-labeled
+    # breakdown, not a deduction from it, so this never invents savings by
+    # quietly excluding a real cash outflow from the total.
+    tax_by_month = defaultdict(Decimal)
     for tx in await transactions_for_reporting(session, effective_start, effective_end):
         if tx.type in (TransactionType.INCOME, TransactionType.EXPENSE):
             by_month[(tx.date.year, tx.date.month)][tx.type] += fx.transaction(tx)
+        if tx.type == TransactionType.EXPENSE:
+            tax_by_month[(tx.date.year, tx.date.month)] += mandatory_tax_amount(tx, fx)
 
     points: list[CashFlowPoint] = []
     year, month = effective_start.year, effective_start.month
@@ -62,11 +75,15 @@ async def get_cash_flow(
         totals = by_month.get((year, month), {})
         income = totals.get(TransactionType.INCOME, Decimal("0"))
         expense = totals.get(TransactionType.EXPENSE, Decimal("0"))
-        points.append(CashFlowPoint(year=year, month=month, income=income, expense=expense, net=income - expense))
+        tax_expense = tax_by_month.get((year, month), Decimal("0"))
+        points.append(
+            CashFlowPoint(year=year, month=month, income=income, expense=expense, tax_expense=tax_expense, net=income - expense)
+        )
         year, month = _next_month(year, month)
 
     total_income = sum((p.income for p in points), Decimal("0"))
     total_expense = sum((p.expense for p in points), Decimal("0"))
+    total_tax_expense = sum((p.tax_expense for p in points), Decimal("0"))
 
     return CashFlowResponse(
         fx_rates_used=fx.metadata(),
@@ -76,5 +93,6 @@ async def get_cash_flow(
         points=points,
         total_income=total_income,
         total_expense=total_expense,
+        total_tax_expense=total_tax_expense,
         total_net=total_income - total_expense,
     )

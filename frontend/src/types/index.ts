@@ -3,6 +3,11 @@ export type CategoryKind = "income" | "expense";
 export type TransactionType = "income" | "expense" | "transfer" | "adjustment" | "asset_buy" | "asset_sell";
 export type AdjustmentReason = "opening_balance" | "reconciliation" | "migration";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
+// A self-employed user's own mandatory monthly payments in Poland — see
+// docs/tasks/income-tax-separation.md. Names the user's own bookkeeping
+// label, computed/entered nowhere in this app: no rate or formula is ever
+// derived from this.
+export type MandatoryPaymentKind = "zus" | "ppe" | "vat";
 
 export interface Account {
   id: number;
@@ -82,6 +87,11 @@ export interface TransactionSplit {
   // of the parent Transaction's own expense_asset_id below: a split
   // transaction links its *lines* instead, never both.
   expense_asset_id: number | null;
+  // This line's own optional gross-income/mandatory-tax classification —
+  // see docs/tasks/income-tax-separation.md. Mutually exclusive with
+  // expense_asset_id above; a split parent never carries either.
+  assigned_period: string | null;
+  mandatory_payment_kind: MandatoryPaymentKind | null;
 }
 
 export interface TransactionSplitInput {
@@ -92,6 +102,8 @@ export interface TransactionSplitInput {
   // fully replaced (see TransactionInput.splits) — resend the same id to
   // keep a line's existing link.
   expense_asset_id?: number | null;
+  assigned_period?: string | null;
+  mandatory_payment_kind?: MandatoryPaymentKind | null;
 }
 
 export interface Transaction {
@@ -100,6 +112,12 @@ export interface Transaction {
   // manually-tracked asset — see docs/tasks/property-expense-links.md.
   // Never set together with `splits` (a split links its lines instead).
   expense_asset_id?: number | null;
+  // Gross-income/mandatory-tax classification — see
+  // docs/tasks/income-tax-separation.md. `assigned_period` is a month
+  // stored as its first day ("YYYY-MM-01"); `mandatory_payment_kind` is
+  // EXPENSE-only and always paired with it.
+  assigned_period?: string | null;
+  mandatory_payment_kind?: MandatoryPaymentKind | null;
   adjustment_reason?: AdjustmentReason | null;
   destination_amount?: string | null;
   reporting_amount_override?: string | null;
@@ -134,6 +152,11 @@ export interface TransactionInput {
   // untouched; null -> explicitly cleared; an id -> set/replaced. See
   // docs/tasks/property-expense-links.md.
   expense_asset_id?: number | null;
+  // Omitted on create -> not classified. On update: omitted -> existing
+  // classification untouched; null -> cleared; a value -> set/replaced.
+  // See docs/tasks/income-tax-separation.md.
+  assigned_period?: string | null;
+  mandatory_payment_kind?: MandatoryPaymentKind | null;
   adjustment_reason?: AdjustmentReason | null;
   destination_amount?: string | null;
   reporting_amount_override?: string | null;
@@ -173,6 +196,10 @@ export interface RecurringTransaction {
   // docs/tasks/property-expense-links.md). Posting the template copies it
   // onto the created Transaction unchanged.
   expense_asset_id: number | null;
+  // Marks this EXPENSE template as always posting one specific mandatory
+  // payment — see docs/tasks/income-tax-separation.md. No period here:
+  // each posting supplies its own assigned_period explicitly.
+  mandatory_payment_kind: MandatoryPaymentKind | null;
   transfer_account_id: number | null;
   transfer_account_name: string | null;
   type: TransactionType;
@@ -196,6 +223,9 @@ export interface RecurringTransactionInput {
   // Omitted on create -> no link. On update: omitted -> existing link
   // untouched; null -> explicitly cleared; an id -> set/replaced.
   expense_asset_id?: number | null;
+  // Omitted on create -> ordinary template. On update: omitted -> existing
+  // classification untouched; null -> cleared; a value -> set/replaced.
+  mandatory_payment_kind?: MandatoryPaymentKind | null;
   type: TransactionType;
   amount: string;
   description: string;
@@ -238,7 +268,12 @@ export interface DashboardSummary {
   start_date: string | null;
   end_date: string;
   real_income: string;
+  // Ordinary spending only — a mandatory tax payment (ZUS/PPE/VAT) is
+  // excluded here and shown separately via mandatory_payments_paid below
+  // instead — see docs/tasks/income-tax-separation.md.
   spent: string;
+  mandatory_payments_paid: string;
+  // Still the real cash figure: real_income - spent - mandatory_payments_paid.
   net: string;
   transferred_out: string;
   spending_by_category: CategoryBreakdownItem[];
@@ -435,7 +470,11 @@ export interface CashFlowPoint {
   year: number;
   month: number;
   income: string;
+  // Every real cash EXPENSE this month, mandatory tax payments included.
   expense: string;
+  // This month's share of `expense` that was a classified ZUS/PPE/VAT
+  // payment — already included in `expense`, never a second deduction.
+  tax_expense: string;
   net: string;
 }
 
@@ -446,7 +485,49 @@ export interface CashFlowResponse {
   points: CashFlowPoint[];
   total_income: string;
   total_expense: string;
+  total_tax_expense: string;
   total_net: string;
+}
+
+// GET /income-tax — grouped by assigned_period, not by real cash date; see
+// docs/tasks/income-tax-separation.md.
+export interface IncomeTaxEntry {
+  id: number;
+  split_id: number | null;
+  date: string;
+  kind: MandatoryPaymentKind | null;
+  description: string;
+  account_id: number;
+  account_name: string;
+  account_currency: string;
+  native_amount: string;
+  amount: string;
+}
+
+export interface IncomeTaxPeriod {
+  period: string;
+  gross_income: string;
+  tax_paid_by_kind: Partial<Record<MandatoryPaymentKind, string>>;
+  tax_paid_total: string;
+  net_after_paid_taxes: string;
+  income_received: boolean;
+  entries: IncomeTaxEntry[];
+}
+
+export interface IncomeTaxReport {
+  reporting_currency: string;
+  year: number | null;
+  month: number | null;
+  periods: IncomeTaxPeriod[];
+  total: number;
+  page: number;
+  page_size: number;
+  // Every calendar year any assigned_period (its own, or any split line's)
+  // ever falls in across the *whole* ledger — never narrowed by this
+  // request's own year/month/page. See IncomeTaxReport.available_years's
+  // own docstring in backend/app/schemas/income_tax.py and
+  // docs/tasks/income-tax-separation.md.
+  available_years: number[];
 }
 
 export interface CategoryRankingChildItem {

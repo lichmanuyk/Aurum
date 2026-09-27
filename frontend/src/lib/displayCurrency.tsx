@@ -19,7 +19,12 @@ const SECTIONS: { section: Section; test: (path: string) => boolean; overrideFie
   { section: "netWorth", test: (p) => p.startsWith("/net-worth"), overrideField: "net_worth_currency" },
   { section: "crypto", test: (p) => p.startsWith("/crypto"), overrideField: "crypto_currency" },
   { section: "cashFlow", test: (p) => p.startsWith("/cash-flow"), overrideField: "cash_flow_currency" },
-  { section: "reports", test: (p) => p.startsWith("/reports"), overrideField: "reports_currency" },
+  // Income & Taxes is a *report* (grouped by assigned_period, not by
+  // real cash date) — it deliberately shares Reports' own currency
+  // preference (override -> summary_currency -> primary) rather than
+  // getting a dedicated AppSettings column of its own; see
+  // docs/tasks/income-tax-separation.md.
+  { section: "reports", test: (p) => p.startsWith("/reports") || p.startsWith("/income-tax"), overrideField: "reports_currency" },
 ];
 
 function sectionForPath(pathname: string) {

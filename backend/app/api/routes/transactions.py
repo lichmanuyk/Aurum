@@ -28,6 +28,7 @@ from app.schemas.transaction import (
     TransactionUpdate,
     expense_asset_link_violation,
     split_rule_violation,
+    tax_classification_violation,
     transfer_rule_violation,
 )
 
@@ -124,13 +125,36 @@ async def _build_splits(
         if split.expense_asset_id is not None and transaction_type != TransactionType.EXPENSE:
             raise HTTPException(status_code=400, detail="expense_asset_id is only valid for expense splits")
         await _ensure_expense_asset_valid(session, split.expense_asset_id)
+        # This line's own optional gross-income/mandatory-tax classification
+        # — see tax_classification_violation (schemas/transaction.py). This
+        # is the one place both the create *and* update path go through for
+        # a split's own fields (TransactionUpdate has no per-split pydantic
+        # validator of its own, unlike TransactionCreate — see
+        # docs/tasks/income-tax-separation.md), so it must run here
+        # regardless of which route called this.
+        split_tax_violation = tax_classification_violation(
+            type=transaction_type,
+            assigned_period=split.assigned_period,
+            mandatory_payment_kind=split.mandatory_payment_kind,
+            expense_asset_id=split.expense_asset_id,
+            split_count=0,
+        )
+        if split_tax_violation:
+            raise HTTPException(status_code=400, detail=split_tax_violation)
     if len(top_level_ids) > 1:
         raise HTTPException(
             status_code=400,
             detail="All split categories must be the same parent category or its direct subcategories",
         )
     return [
-        TransactionSplit(category_id=s.category_id, amount=s.amount, note=s.note, expense_asset_id=s.expense_asset_id)
+        TransactionSplit(
+            category_id=s.category_id,
+            amount=s.amount,
+            note=s.note,
+            expense_asset_id=s.expense_asset_id,
+            assigned_period=s.assigned_period,
+            mandatory_payment_kind=s.mandatory_payment_kind,
+        )
         for s in splits
     ]
 
@@ -365,6 +389,24 @@ async def update_transaction(
         raise HTTPException(status_code=400, detail=asset_link_violation)
     if "expense_asset_id" in updates:
         await _ensure_expense_asset_valid(session, updates["expense_asset_id"])
+    # Same "row as it would look after the patch" check, for the gross-
+    # income/mandatory-tax classification — see
+    # docs/tasks/income-tax-separation.md and tax_classification_violation
+    # (schemas/transaction.py). Catches e.g. switching an EXPENSE tax
+    # payment to INCOME without clearing mandatory_payment_kind, or turning
+    # a classified plain row into a split parent without clearing either
+    # field first.
+    effective_assigned_period = updates.get("assigned_period", transaction.assigned_period)
+    effective_mandatory_payment_kind = updates.get("mandatory_payment_kind", transaction.mandatory_payment_kind)
+    tax_violation = tax_classification_violation(
+        type=effective_type,
+        assigned_period=effective_assigned_period,
+        mandatory_payment_kind=effective_mandatory_payment_kind,
+        expense_asset_id=effective_expense_asset_id,
+        split_count=split_count,
+    )
+    if tax_violation:
+        raise HTTPException(status_code=400, detail=tax_violation)
     # A sparse patch that only changes `type` (splits omitted -> "leave
     # them as they are") can't silently keep a *split line's own* link
     # once the row is no longer an expense — expense_asset_link_violation
@@ -380,6 +422,16 @@ async def update_transaction(
         raise HTTPException(
             status_code=400,
             detail="Resubmit splits (clearing or replacing each line's expense_asset_id) before changing type away from expense",
+        )
+    # Same reasoning, for a split line's own mandatory_payment_kind (always
+    # paired with its own assigned_period — see tax_classification_violation)
+    # once the parent is no longer an EXPENSE.
+    if payload.splits is None and effective_type != TransactionType.EXPENSE and any(
+        split.mandatory_payment_kind is not None for split in transaction.splits
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Resubmit splits (clearing or replacing each line's mandatory_payment_kind) before changing type away from expense",
         )
 
     fields = {column.name: getattr(transaction, column.name) for column in Transaction.__table__.columns}

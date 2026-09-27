@@ -120,7 +120,7 @@ export function DashboardPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <StatCard
           label={t("dashboard.statRealIncomeLabel")}
           value={isError ? "—" : isLoading ? "…" : formatCurrency(data?.real_income ?? 0, data?.reporting_currency)}
@@ -131,6 +131,16 @@ export function DashboardPage() {
           label={t("dashboard.statSpentLabel")}
           value={isError ? "—" : isLoading ? "…" : formatCurrency(data?.spent ?? 0, data?.reporting_currency)}
           caption={t("dashboard.statSpentCaption")}
+          tone="danger"
+        />
+        {/* Real cash paid on a classified ZUS/PPE/VAT payment — see
+            docs/tasks/income-tax-separation.md. Separate from `spent` above
+            (ordinary spending only) and still fully subtracted in `net`
+            below, so this never inflates the money actually left over. */}
+        <StatCard
+          label={t("dashboard.statMandatoryPaymentsLabel")}
+          value={isError ? "—" : isLoading ? "…" : formatCurrency(data?.mandatory_payments_paid ?? 0, data?.reporting_currency)}
+          caption={t("dashboard.statMandatoryPaymentsCaption")}
           tone="danger"
         />
         <StatCard

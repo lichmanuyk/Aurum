@@ -18,6 +18,7 @@ import { CryptoPage } from "@/pages/CryptoPage";
 import { CsvImportPage } from "@/pages/CsvImportPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { GoalsPage } from "@/pages/GoalsPage";
+import { IncomeTaxPage } from "@/pages/IncomeTaxPage";
 import { NetWorthPage } from "@/pages/NetWorthPage";
 import { RecurringPage } from "@/pages/RecurringPage";
 import { ReportsPage } from "@/pages/ReportsPage";
@@ -78,6 +79,7 @@ export default function App() {
               <Route path="/advice" element={<AdvicePage />} />
               <Route path="/goals" element={<GoalsPage />} />
               <Route path="/recurring" element={<RecurringPage />} />
+              <Route path="/income-tax" element={<IncomeTaxPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>
