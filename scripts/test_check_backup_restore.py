@@ -125,6 +125,90 @@ class RestoreCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'transactions'):
             check_backup_restore.compare(original, restored_with_drift)
 
+    def test_compare_treats_shuffled_records_as_equal(self):
+        # A real production restore once reported a false mismatch this
+        # way: every row's own fields matched exactly by id, but
+        # build_backup() had no ORDER BY, so the two exports came back in
+        # different physical order. Reordering alone must never fail this — across
+        # several sections at once, including one financially meaningful
+        # nullable field (expense_asset_id). aurum_backup_version is
+        # current on both sides so none of the version-gated backfills
+        # above apply here — this test is only about the shuffle itself.
+        original = {
+            'aurum_backup_version': 10,
+            'accounts': [{'id': 1, 'name': 'A'}, {'id': 2, 'name': 'B'}, {'id': 3, 'name': 'C'}],
+            'transactions': [
+                {'id': 10, 'amount': '10.00', 'expense_asset_id': None},
+                {'id': 11, 'amount': '20.00', 'expense_asset_id': 5},
+                {'id': 12, 'amount': '30.00', 'expense_asset_id': None},
+            ],
+            'fx_rates': [{'base_currency': 'EUR', 'quote_currency': 'PLN', 'rate_date': '2025-01-01', 'rate': '4.1'},
+                         {'base_currency': 'USD', 'quote_currency': 'PLN', 'rate_date': '2025-01-01', 'rate': '3.9'}],
+        }
+        restored = {
+            'aurum_backup_version': 10,
+            'accounts': [original['accounts'][2], original['accounts'][0], original['accounts'][1]],
+            'transactions': [original['transactions'][1], original['transactions'][2], original['transactions'][0]],
+            'fx_rates': list(reversed(original['fx_rates'])),
+        }
+        check_backup_restore.compare(original, restored)  # must not raise
+
+    def test_compare_still_catches_a_lost_record_even_when_the_rest_is_shuffled(self):
+        original = {'aurum_backup_version': 10, 'accounts': [{'id': 1}, {'id': 2}, {'id': 3}]}
+        restored = {'aurum_backup_version': 10, 'accounts': [{'id': 3}, {'id': 1}]}  # id 2 silently missing
+        with self.assertRaisesRegex(RuntimeError, 'accounts'):
+            check_backup_restore.compare(original, restored)
+
+    def test_compare_still_catches_a_duplicated_record_even_when_shuffled(self):
+        # A real duplicate (same id inserted twice) must not be hidden by
+        # treating the section as a set/dict keyed by id — see
+        # _canonical_multiset's own docstring.
+        original = {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'amount': '5'}, {'id': 2, 'amount': '7'}]}
+        restored = {'aurum_backup_version': 10, 'transactions': [
+            {'id': 2, 'amount': '7'}, {'id': 1, 'amount': '5'}, {'id': 1, 'amount': '5'},
+        ]}
+        with self.assertRaisesRegex(RuntimeError, 'transactions'):
+            check_backup_restore.compare(original, restored)
+
+    def test_compare_still_catches_any_changed_field_even_when_shuffled(self):
+        # Amount changed on row id 2, plus the two rows swapped position —
+        # the reorder alone must not mask the real content difference.
+        original = {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'amount': '5'}, {'id': 2, 'amount': '7'}]}
+        restored = {'aurum_backup_version': 10, 'transactions': [
+            {'id': 2, 'amount': '7.01'}, {'id': 1, 'amount': '5'},
+        ]}
+        with self.assertRaisesRegex(RuntimeError, 'transactions'):
+            check_backup_restore.compare(original, restored)
+
+    def test_compare_still_catches_a_changed_nullable_expense_asset_id_even_when_shuffled(self):
+        original = {'aurum_backup_version': 10, 'transaction_splits': [
+            {'id': 1, 'expense_asset_id': None}, {'id': 2, 'expense_asset_id': 9},
+        ]}
+        restored = {'aurum_backup_version': 10, 'transaction_splits': [
+            {'id': 2, 'expense_asset_id': 9}, {'id': 1, 'expense_asset_id': 99},
+        ]}
+        with self.assertRaisesRegex(RuntimeError, 'transaction_splits'):
+            check_backup_restore.compare(original, restored)
+
+    def test_compare_sorts_tag_ids_before_comparing_but_still_catches_a_real_difference(self):
+        # A transaction's own tag set order was never a recorded fact (no
+        # order_by on the many-to-many relationship — see
+        # backup_service.py's build_backup) — only the set/multiset itself
+        # matters.
+        original = {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'tag_ids': [3, 1, 2]}]}
+        check_backup_restore.compare(
+            original, {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'tag_ids': [1, 2, 3]}]}
+        )
+        with self.assertRaisesRegex(RuntimeError, 'transactions'):
+            check_backup_restore.compare(
+                original, {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'tag_ids': [1, 2]}]}
+            )
+        # A genuine duplicate tag id is not silently deduplicated away either.
+        with self.assertRaisesRegex(RuntimeError, 'transactions'):
+            check_backup_restore.compare(
+                original, {'aurum_backup_version': 10, 'transactions': [{'id': 1, 'tag_ids': [1, 2, 3, 3]}]}
+            )
+
     def test_compare_still_matches_v9_backups_verbatim(self):
         original = {'exported_at': 'a', 'aurum_backup_version': 9,
                     'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
