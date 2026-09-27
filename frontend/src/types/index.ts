@@ -1,6 +1,9 @@
 export type AccountType = "checking" | "debit_card" | "savings" | "credit_card" | "cash" | "investment" | "other";
 export type CategoryKind = "income" | "expense";
-export type TransactionType = "income" | "expense" | "transfer" | "adjustment" | "asset_buy" | "asset_sell";
+// debt_in/debt_out (see docs/tasks/debt-tracking.md) are a debt's own real
+// cash leg (issuance/repayment/reversal) — never creatable/editable through
+// the generic transaction form/routes, same shape as asset_buy/asset_sell.
+export type TransactionType = "income" | "expense" | "transfer" | "adjustment" | "asset_buy" | "asset_sell" | "debt_in" | "debt_out";
 export type AdjustmentReason = "opening_balance" | "reconciliation" | "migration";
 export type RecurringFrequency = "weekly" | "monthly" | "yearly";
 // A self-employed user's own mandatory monthly payments in Poland — see
@@ -444,6 +447,14 @@ export interface NetWorthSummary {
   breakdown: NetWorthBreakdownItem[];
   capital_roles: CapitalRoleSummary[];
   risk_levels: RiskLevelSummary[];
+  // Today's total across every owed_to_me/owed_by_me Debt (see
+  // docs/tasks/debt-tracking.md), already in reporting_currency — the same
+  // figures already folded into `current`/`series` above, surfaced
+  // explicitly so the UI can show liabilities as their own clearly-negative
+  // callout instead of a positive donut slice (see DebtsSummary.tsx and
+  // AssetAllocationCard's own liabilities callout).
+  total_receivables: string;
+  total_liabilities: string;
 }
 
 export interface CategorySpendingPoint {
@@ -816,4 +827,119 @@ export interface AppSettings {
   /** Read-only: the IANA zone `business_date` was computed in
    * (`Europe/Warsaw` by default — see AURUM_BUSINESS_TIMEZONE). */
   business_timezone: string;
+}
+
+// ---------------------------------------------------------------------------
+// Debts — see docs/tasks/debt-tracking.md, backend/app/schemas/debt.py and
+// pages/DebtsPage.tsx. A Debt is who-owes-whom in ITS OWN native currency;
+// its linked cash leg (a new loan's issuance, or any repayment/reversal)
+// lives on the chosen account in THAT account's own currency — the two
+// amounts are always kept explicit and distinct, never inferred from each
+// other via FX (see debtAmountPairViolation-shaped validation in the forms
+// below, mirroring backend/app/schemas/debt.py's debt_amount_pair_violation).
+export type DebtDirection = "owed_to_me" | "owed_by_me";
+export type DebtRepaymentKind = "repayment" | "reversal";
+export type DebtFunding = "opening_balance" | "new_loan";
+export type DebtStatus = "active" | "settled";
+
+export interface DebtCreateInput {
+  direction: DebtDirection;
+  counterparty: string;
+  currency: string;
+  principal_amount: string;
+  start_date: string;
+  due_date?: string | null;
+  note?: string | null;
+  funding: DebtFunding;
+  // Only for funding === "new_loan" — the cash account the loan actually
+  // moved through; omitted (undefined) for "opening_balance".
+  account_id?: number | null;
+  // Only meaningful (and only sent) when account currency !== `currency` —
+  // omitted otherwise so the backend can default it to principal_amount.
+  issuance_account_amount?: string | null;
+  idempotency_key: string;
+}
+
+// Metadata (counterparty/due_date/note) is always editable. The remaining
+// fields are only accepted by the backend while the debt is still an
+// opening-balance debt with zero repayments (see DebtRead.funding/
+// repayment_count below and services/debt_service.py's lock) — sending them
+// once locked gets an explicit 409 back, never a silent partial update.
+export interface DebtUpdateInput {
+  direction?: DebtDirection;
+  counterparty?: string;
+  currency?: string;
+  principal_amount?: string;
+  start_date?: string;
+  due_date?: string | null;
+  note?: string | null;
+}
+
+export interface Debt {
+  id: number;
+  direction: DebtDirection;
+  counterparty: string;
+  currency: string;
+  principal_amount: string;
+  outstanding_amount: string;
+  status: DebtStatus;
+  start_date: string;
+  due_date: string | null;
+  note: string | null;
+  funding: DebtFunding;
+  account_id: number | null;
+  account_name: string | null;
+  issuance_account_amount: string | null;
+  issuance_account_currency: string | null;
+  repayment_count: number;
+  idempotency_key: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DebtRepaymentCreateInput {
+  account_id: number;
+  date: string;
+  // The debt's own native-currency amount this repayment reduces
+  // outstanding by — always explicit.
+  amount_debt_currency: string;
+  // Required only when the account's currency differs from the debt's own.
+  account_amount?: string | null;
+  note?: string | null;
+  idempotency_key: string;
+}
+
+// A repayment/reversal's account/date/amount are immutable once recorded —
+// `note` is the only field the PATCH route ever actually changes (see
+// backend/app/schemas/debt.py's DebtRepaymentUpdate docstring); this input
+// intentionally carries only that.
+export interface DebtRepaymentNoteInput {
+  note: string | null;
+}
+
+export interface DebtRepaymentReverseInput {
+  account_id: number;
+  date: string;
+  account_amount?: string | null;
+  note?: string | null;
+  idempotency_key: string;
+}
+
+export interface DebtRepayment {
+  id: number;
+  debt_id: number;
+  kind: DebtRepaymentKind;
+  reverses_repayment_id: number | null;
+  amount_debt_currency: string;
+  account_id: number;
+  account_name: string;
+  account_currency: string;
+  account_amount: string;
+  date: string;
+  note: string | null;
+  idempotency_key: string | null;
+  // True when some other row's reverses_repayment_id points at this one —
+  // its own financial fields are effectively locked, always false for a
+  // `reversal` row itself (reversals can't be re-reversed).
+  is_reversed: boolean;
 }

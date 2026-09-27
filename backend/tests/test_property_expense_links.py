@@ -335,7 +335,7 @@ async def test_backup_roundtrip_preserves_transaction_split_and_recurring_links(
     t = await template(client, account_id, expense_asset_id=a["id"], description="Synthetic backup bill")
 
     payload = (await client.get("/backup/export")).json()
-    assert payload["aurum_backup_version"] == 11
+    assert payload["aurum_backup_version"] == 12
     tx_backup = next(row for row in payload["transactions"] if row["id"] == plain["id"])
     assert tx_backup["expense_asset_id"] == a["id"]
     split_backup = next(row for row in payload["transaction_splits"] if money(row["amount"]) == money("20.00"))

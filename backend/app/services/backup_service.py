@@ -13,7 +13,7 @@ app half-restored.
 from app.models.fx import FXRate
 from app.models.crypto import CryptoSyncState
 from app.core.money import currency_code, validate_money, validate_ledger_money, adjustment_rule_violation
-from app.models.enums import AssetClass, CryptoTransactionType, TransactionType
+from app.models.enums import AssetClass, CryptoTransactionType, DebtDirection, DebtRepaymentKind, TransactionType
 from app.schemas.fx import FXRateRead
 import logging
 from datetime import datetime, timezone
@@ -29,6 +29,7 @@ from app.models.asset import Asset, AssetValuation
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoTransaction
+from app.models.debt import Debt, DebtRepayment
 from app.models.goal import Goal, GoalContribution
 from app.models.recurring import RecurringTransaction
 from app.models.settings import AppSettings
@@ -45,6 +46,8 @@ from app.schemas.backup import (
     CryptoHoldingBackup,
     CryptoPortfolioBackup,
     CryptoTransactionBackup,
+    DebtBackup,
+    DebtRepaymentBackup,
     GoalBackup,
     GoalContributionBackup,
     RecurringTransactionBackup,
@@ -52,10 +55,11 @@ from app.schemas.backup import (
     TransactionBackup,
     TransactionSplitBackup,
 )
+from app.schemas.debt import debt_amount_pair_violation
 
 logger = logging.getLogger(__name__)
 
-BACKUP_FORMAT_VERSION = 11
+BACKUP_FORMAT_VERSION = 12
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
@@ -91,6 +95,8 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
     recurring_transactions = (await session.execute(
         select(RecurringTransaction).order_by(RecurringTransaction.id)
     )).scalars().all()
+    debts = (await session.execute(select(Debt).order_by(Debt.id))).scalars().all()
+    debt_repayments = (await session.execute(select(DebtRepayment).order_by(DebtRepayment.id))).scalars().all()
     app_settings = await session.get(AppSettings, 1)
 
     return BackupPayload(
@@ -127,6 +133,8 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
         goals=[GoalBackup.model_validate(row) for row in goals],
         goal_contributions=[GoalContributionBackup.model_validate(row) for row in goal_contributions],
         recurring_transactions=[RecurringTransactionBackup.model_validate(row) for row in recurring_transactions],
+        debts=[DebtBackup.model_validate(row) for row in debts],
+        debt_repayments=[DebtRepaymentBackup.model_validate(row) for row in debt_repayments],
         app_settings=AppSettingsBackup.model_validate(app_settings) if app_settings else AppSettingsBackup(currency="USD"),
     )
 
@@ -231,6 +239,24 @@ def _validate_references(payload: BackupPayload) -> None:
                 400, f"Recurring transaction {r.id} references unknown expense_asset_id {r.expense_asset_id}"
             )
 
+    # Debt tracking (see docs/tasks/debt-tracking.md) — debts.id/
+    # debt_repayments.id referenced below.
+    debt_ids = {d.id for d in payload.debts}
+    for d in payload.debts:
+        if d.issuance_transaction_id is not None and d.issuance_transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Debt {d.id} references unknown issuance_transaction_id {d.issuance_transaction_id}")
+
+    repayment_ids = {r.id for r in payload.debt_repayments}
+    for r in payload.debt_repayments:
+        if r.debt_id not in debt_ids:
+            raise HTTPException(400, f"Debt repayment {r.id} references unknown debt_id {r.debt_id}")
+        if r.transaction_id not in transaction_ids:
+            raise HTTPException(400, f"Debt repayment {r.id} references unknown transaction_id {r.transaction_id}")
+        if r.reverses_repayment_id is not None and r.reverses_repayment_id not in repayment_ids:
+            raise HTTPException(
+                400, f"Debt repayment {r.id} references unknown reverses_repayment_id {r.reverses_repayment_id}"
+            )
+
 
 async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None:
     """Bulk-inserting rows with explicit ids doesn't advance the table's
@@ -246,7 +272,7 @@ async def _reset_sequence(session: AsyncSession, table: str, rows: list) -> None
 
 
 async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
-    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, BACKUP_FORMAT_VERSION):
+    if payload.aurum_backup_version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, BACKUP_FORMAT_VERSION):
         raise HTTPException(
             400,
             f"Unsupported backup version {payload.aurum_backup_version} "
@@ -261,7 +287,11 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         await session.execute(delete(CryptoSyncState))
         session.add_all(FXRate(**row.model_dump()) for row in payload.fx_rates)
         # Children before parents. Cash-linked trades reference valuation
-        # and crypto rows, so ledger transactions must be removed first.
+        # and crypto rows, so ledger transactions must be removed first —
+        # and a debt's own repayments/issuance point at Transaction rows
+        # too (RESTRICT — see models/debt.py), so those go even earlier.
+        await session.execute(delete(DebtRepayment))
+        await session.execute(delete(Debt))
         await session.execute(delete(TransactionSplit))
         await session.execute(delete(Transaction))
         await session.execute(delete(AssetValuation))
@@ -305,6 +335,23 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         }
         session.add_all(transactions_by_id.values())
         session.add_all(TransactionSplit(**row.model_dump()) for row in payload.transaction_splits)
+
+        # Debts reference transactions above (issuance_transaction_id) —
+        # same "added after the Transaction rows it points to, one shared
+        # flush at the end sorts the actual INSERTs" contract every other
+        # cross-table FK in this function already relies on (e.g.
+        # AssetValuation below has no relationship() back from Transaction
+        # either, same as Budget.category_id -> Category further down);
+        # Debt.issuance_transaction now also carries an explicit
+        # relationship() (see models/debt.py) purely so this dependency is
+        # never left to chance. debt_repayments reference both debts and
+        # transactions, and are additionally self-referential the same way
+        # categories are above (reverses_repayment_id points at another row
+        # in this same table) — sort plain repayments first so a
+        # reversal's own FK is never inserted ahead of the row it points to.
+        session.add_all(Debt(**row.model_dump()) for row in payload.debts)
+        repayments_in_order = sorted(payload.debt_repayments, key=lambda row: row.reverses_repayment_id is not None)
+        session.add_all(DebtRepayment(**row.model_dump()) for row in repayments_in_order)
 
         session.add_all(AssetValuation(**row.model_dump()) for row in payload.asset_valuations)
 
@@ -361,6 +408,8 @@ async def restore_backup(session: AsyncSession, payload: BackupPayload) -> None:
         await _reset_sequence(session, "goals", payload.goals)
         await _reset_sequence(session, "goal_contributions", payload.goal_contributions)
         await _reset_sequence(session, "recurring_transactions", payload.recurring_transactions)
+        await _reset_sequence(session, "debts", payload.debts)
+        await _reset_sequence(session, "debt_repayments", payload.debt_repayments)
 
         # Singleton row — updated in place, not deleted/recreated (no
         # sequence to reset, id is always 1).
@@ -397,7 +446,7 @@ def _validate_money_backup(payload):
             value = getattr(payload.app_settings, field_name)
             if value is not None and value not in ("PLN", "USD", "EUR"):
                 raise ValueError(f"Invalid display currency in app_settings.{field_name}")
-        for name in ("accounts", "categories", "transactions", "assets", "asset_valuations", "goals", "budgets", "tags", "transaction_splits", "crypto_transactions", "crypto_portfolios", "goal_contributions", "recurring_transactions", "fx_rates"):
+        for name in ("accounts", "categories", "transactions", "assets", "asset_valuations", "goals", "budgets", "tags", "transaction_splits", "crypto_transactions", "crypto_portfolios", "goal_contributions", "recurring_transactions", "fx_rates", "debts", "debt_repayments"):
             rows = getattr(payload, name)
             if len({r.id for r in rows}) != len(rows):
                 raise ValueError(f"Duplicate IDs in {name}")
@@ -566,5 +615,82 @@ def _validate_money_backup(payload):
                     )
                     if split_violation:
                         raise ValueError(split_violation)
+
+        # Debt tracking (see docs/tasks/debt-tracking.md) — every debt_in/
+        # debt_out transaction row above already passed every ordinary
+        # check (positive ledger amount, no category/splits/adjustment/tax/
+        # property-link fields — the same "elif any(...) raise" branch
+        # asset movements are excluded from also catches these, since
+        # neither type is ASSET_BUY/ASSET_SELL); only the debt-specific
+        # relationships and the debt-domain rules are checked here.
+        tx_by_id = {t.id: t for t in payload.transactions}
+        debts_by_id = {d.id: d for d in payload.debts}
+        for debt in payload.debts:
+            validate_ledger_money(debt.principal_amount, debt.currency)
+            if debt.principal_amount <= 0:
+                raise ValueError("Debt principal must be positive")
+            if debt.due_date is not None and debt.due_date < debt.start_date:
+                raise ValueError("Debt due_date cannot be before start_date")
+            if debt.issuance_transaction_id is not None:
+                tx = tx_by_id[debt.issuance_transaction_id]
+                expected_type = TransactionType.DEBT_OUT if debt.direction == DebtDirection.OWED_TO_ME else TransactionType.DEBT_IN
+                if tx.type != expected_type:
+                    raise ValueError(f"Debt {debt.id}'s issuance transaction direction does not match its own direction")
+                if tx.date != debt.start_date:
+                    raise ValueError(f"Debt {debt.id}'s issuance transaction date must match start_date")
+                violation = debt_amount_pair_violation(
+                    debt_currency=debt.currency, account_currency=accounts[tx.account_id].currency,
+                    debt_amount=debt.principal_amount, account_amount=tx.amount,
+                )
+                if violation:
+                    raise ValueError(violation)
+
+        reverses_targets = [r.reverses_repayment_id for r in payload.debt_repayments if r.reverses_repayment_id is not None]
+        if len(set(reverses_targets)) != len(reverses_targets):
+            raise ValueError("Duplicate reversal target in debt_repayments")
+        repayments_by_id = {r.id: r for r in payload.debt_repayments}
+        repayments_by_debt: dict[int, list] = defaultdict(list)
+        for repayment in payload.debt_repayments:
+            debt = debts_by_id[repayment.debt_id]
+            tx = tx_by_id[repayment.transaction_id]
+            if repayment.amount_debt_currency <= 0:
+                raise ValueError(f"Debt repayment {repayment.id} amount must be positive")
+            validate_ledger_money(repayment.amount_debt_currency, debt.currency)
+            if tx.type not in (TransactionType.DEBT_IN, TransactionType.DEBT_OUT):
+                raise ValueError(f"Debt repayment {repayment.id}'s transaction must be a debt_in/debt_out row")
+            violation = debt_amount_pair_violation(
+                debt_currency=debt.currency, account_currency=accounts[tx.account_id].currency,
+                debt_amount=repayment.amount_debt_currency, account_amount=tx.amount,
+            )
+            if violation:
+                raise ValueError(violation)
+            if repayment.kind == DebtRepaymentKind.REVERSAL:
+                if repayment.reverses_repayment_id is None:
+                    raise ValueError(f"Reversal {repayment.id} must reference the repayment it undoes")
+                original = repayments_by_id[repayment.reverses_repayment_id]
+                if original.kind != DebtRepaymentKind.REPAYMENT or original.debt_id != repayment.debt_id:
+                    raise ValueError(f"Reversal {repayment.id} targets an invalid repayment")
+                if original.amount_debt_currency != repayment.amount_debt_currency:
+                    raise ValueError(f"Reversal {repayment.id}'s amount must mirror the repayment it undoes")
+                if tx.date < tx_by_id[original.transaction_id].date:
+                    raise ValueError(f"Reversal {repayment.id} cannot be dated before the repayment it undoes")
+            elif repayment.reverses_repayment_id is not None:
+                raise ValueError(f"Repayment {repayment.id} is not a reversal but sets reverses_repayment_id")
+            repayments_by_debt[repayment.debt_id].append(repayment)
+
+        # Full chronological replay per debt, not just a final tally — a
+        # reversal only cancels its target's effect from ITS OWN date
+        # onward (see models/debt.py's own docstring); a backup encoding an
+        # impossible *intermediate* overpay that a later reversal "fixes"
+        # on paper must still be rejected, the same way the live locked
+        # create/update path (services/debt_service.py) never lets one
+        # exist in the first place.
+        for debt in payload.debts:
+            rows = sorted(repayments_by_debt.get(debt.id, []), key=lambda r: (tx_by_id[r.transaction_id].date, r.id))
+            outstanding = debt.principal_amount
+            for row in rows:
+                outstanding += -row.amount_debt_currency if row.kind == DebtRepaymentKind.REPAYMENT else row.amount_debt_currency
+                if outstanding < 0:
+                    raise ValueError(f"Debt {debt.id}'s repayments overpay it at some point in its history")
     except (ValueError, TypeError) as exc:
         raise HTTPException(422, str(exc)) from exc

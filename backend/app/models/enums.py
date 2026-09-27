@@ -24,6 +24,23 @@ class TransactionType(str, enum.Enum):
     ADJUSTMENT = "adjustment"
     ASSET_BUY = "asset_buy"
     ASSET_SELL = "asset_sell"
+    # A debt's own real cash leg — see docs/tasks/debt-tracking.md and
+    # models/debt.py. Deliberately named by cash *direction* only
+    # (money entered/left the chosen account), never by the debt's own
+    # narrative (issuance/repayment/reversal, receivable/liability): that
+    # narrative always lives on the linked Debt/DebtRepayment row instead,
+    # the same "Transaction.type carries the cash shape, the domain table
+    # carries the story" split ASSET_BUY/ASSET_SELL already use. Neither
+    # value is ordinary income/expense/a transfer — see
+    # money_service.native_legs (account balance sign),
+    # net_worth_service._cash_cumulative_events (net worth's own cash
+    # series) and the deliberate absence of either value from
+    # cash_flow_service/reports_service/dashboard_service's own explicit
+    # INCOME/EXPENSE checks, which is what keeps a loan/repayment out of
+    # ordinary cash-flow, category spending, budgets and advice without
+    # needing an exclusion list anywhere in those modules.
+    DEBT_IN = "debt_in"
+    DEBT_OUT = "debt_out"
 
 
 class AssetClass(str, enum.Enum):
@@ -78,6 +95,27 @@ class CryptoTransactionType(str, enum.Enum):
     OPENING = "opening"
     BUY = "buy"
     SELL = "sell"
+
+
+class DebtDirection(str, enum.Enum):
+    """Whose money it is — set once at creation, immutable the moment the
+    debt has been "used" (see docs/tasks/debt-tracking.md and
+    services/debt_service.py). Never inferred from an amount's sign."""
+
+    OWED_TO_ME = "owed_to_me"  # a receivable — someone else owes the user
+    OWED_BY_ME = "owed_by_me"  # a liability — the user owes someone else
+
+
+class DebtRepaymentKind(str, enum.Enum):
+    """A `repayment` decreases a debt's outstanding balance; a `reversal`
+    undoes one specific earlier repayment (see
+    DebtRepayment.reverses_repayment_id) and increases outstanding back by
+    that same amount, dated whenever the correction actually happened —
+    never a retroactive rewrite of the original row's own date/amount. See
+    docs/tasks/debt-tracking.md."""
+
+    REPAYMENT = "repayment"
+    REVERSAL = "reversal"
 
 
 class RiskLevel(str, enum.Enum):

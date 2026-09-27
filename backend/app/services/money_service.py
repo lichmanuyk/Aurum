@@ -51,7 +51,15 @@ async def validate_transaction(session, fields, *, template=False):
 
 
 def native_legs(tx):
-    yield tx.account_id, tx.amount if tx.type in (TransactionType.INCOME, TransactionType.ADJUSTMENT, TransactionType.ASSET_SELL) else -tx.amount
+    # DEBT_IN/DEBT_OUT (see docs/tasks/debt-tracking.md) carry a real cash
+    # leg exactly like income/expense — a loan or repayment really does
+    # move money in or out of the chosen account — just excluded from
+    # ordinary income/expense/category/tax reporting elsewhere (those
+    # modules only ever match INCOME/EXPENSE explicitly, so this pair is a
+    # no-op for them without needing its own exclusion list there).
+    yield tx.account_id, tx.amount if tx.type in (
+        TransactionType.INCOME, TransactionType.ADJUSTMENT, TransactionType.ASSET_SELL, TransactionType.DEBT_IN,
+    ) else -tx.amount
     if tx.type == TransactionType.TRANSFER and tx.transfer_account_id is not None:
         if tx.destination_amount is None:
             raise HTTPException(409, detail={"code": "TRANSFER_AMOUNT_UNRESOLVED", "transaction_id": tx.id})

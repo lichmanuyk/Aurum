@@ -17,6 +17,7 @@ import { CategoriesPage } from "@/pages/CategoriesPage";
 import { CryptoPage } from "@/pages/CryptoPage";
 import { CsvImportPage } from "@/pages/CsvImportPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { DebtsPage } from "@/pages/DebtsPage";
 import { GoalsPage } from "@/pages/GoalsPage";
 import { IncomeTaxPage } from "@/pages/IncomeTaxPage";
 import { NetWorthPage } from "@/pages/NetWorthPage";
@@ -67,6 +68,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/net-worth" element={<NetWorthPage />} />
+              <Route path="/debts" element={<DebtsPage />} />
               <Route path="/crypto" element={<CryptoPage />} />
               <Route path="/roi" element={<RoiPage />} />
               <Route path="/accounts" element={<AccountsPage />} />

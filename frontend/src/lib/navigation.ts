@@ -4,6 +4,7 @@ import {
   Calculator,
   Coins,
   Flag,
+  HandCoins,
   Landmark,
   Layers,
   Lightbulb,
@@ -29,6 +30,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { labelKey: "nav.dashboard", to: "/", icon: LayoutDashboard },
   { labelKey: "nav.netWorth", to: "/net-worth", icon: TrendingUp },
+  { labelKey: "nav.debts", to: "/debts", icon: HandCoins },
   { labelKey: "nav.crypto", to: "/crypto", icon: Coins },
   { labelKey: "nav.roi", to: "/roi", icon: Calculator },
   { labelKey: "nav.transactions", to: "/transactions", icon: ArrowLeftRight },

@@ -6,7 +6,7 @@ for (const width of [1440,375]) {
     await page.setViewportSize({width,height:900});
     const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
     page.on('response',r=>{if(r.url().includes('/api/') && r.status()>=400)errors.push(`${r.status()} ${r.url()}`);});
-    for(const path of ['/', '/accounts','/transactions','/categories','/cash-flow','/reports','/budget','/recurring','/goals','/net-worth','/crypto','/roi','/transactions/import','/advice','/settings']) {
+    for(const path of ['/', '/accounts','/transactions','/categories','/cash-flow','/reports','/budget','/recurring','/goals','/net-worth','/debts','/crypto','/roi','/transactions/import','/advice','/settings']) {
       await page.goto(path);
       await expect(page.locator('main')).toBeVisible();
       await page.waitForLoadState('networkidle');

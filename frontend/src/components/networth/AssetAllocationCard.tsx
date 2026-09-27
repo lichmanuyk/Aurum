@@ -11,6 +11,14 @@ import type { NetWorthBreakdownItem } from "@/types";
 interface AssetAllocationCardProps {
   breakdown: NetWorthBreakdownItem[];
   isLoading: boolean;
+  // Today's total across every owed_by_me Debt (see
+  // docs/tasks/debt-tracking.md and NetWorthSummary.total_liabilities) —
+  // deliberately never one of the `breakdown` slices above (see
+  // net_worth_service.get_net_worth_summary's own comment on why a negative
+  // donut slice would misrepresent money owed): rendered as its own
+  // clearly-negative callout instead, directly under the positive
+  // breakdown it's already subtracted out of.
+  totalLiabilities?: string;
 }
 
 // Breakdown items come from the backend with a machine-readable `key`
@@ -20,8 +28,9 @@ function breakdownLabelKey(key: string): TranslationKey {
   return `netWorth.assetClass.${key}` as TranslationKey;
 }
 
-export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCardProps) {
+export function AssetAllocationCard({ breakdown, isLoading, totalLiabilities }: AssetAllocationCardProps) {
   const { formatCurrency } = useSectionFormat();
+  const liabilities = Number(totalLiabilities ?? 0);
   const { t } = useTranslation();
   const total = breakdown.reduce((sum, item) => sum + Number(item.amount), 0);
 
@@ -142,6 +151,16 @@ export function AssetAllocationCard({ breakdown, isLoading }: AssetAllocationCar
                 );
               })}
             </ul>
+
+            {liabilities > 0 && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
+                <span className="text-xs font-medium text-danger">
+                  {t("netWorth.liabilitiesCallout")}
+                  <span className="ml-1 block font-normal text-text-muted sm:inline">{t("netWorth.liabilitiesCalloutHint")}</span>
+                </span>
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-danger">-{formatCurrency(liabilities)}</span>
+              </div>
+            )}
           </>
         )}
       </CardContent>

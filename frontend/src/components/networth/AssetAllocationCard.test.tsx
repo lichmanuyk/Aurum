@@ -11,11 +11,11 @@ function makeItem(overrides: Partial<NetWorthBreakdownItem> = {}): NetWorthBreak
 let container: HTMLDivElement;
 let root: Root;
 
-function render(breakdown: NetWorthBreakdownItem[]) {
+function render(breakdown: NetWorthBreakdownItem[], totalLiabilities?: string) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  flushSync(() => root.render(<AssetAllocationCard breakdown={breakdown} isLoading={false} />));
+  flushSync(() => root.render(<AssetAllocationCard breakdown={breakdown} isLoading={false} totalLiabilities={totalLiabilities} />));
 }
 
 function segments(): HTMLElement[] {
@@ -123,4 +123,23 @@ it("does not resurrect a cleared pin when the same key comes back in a later bre
   const revivedCash = rowButtons()[0];
   expect(revivedCash.getAttribute("aria-pressed")).toBe("false");
   expect(revivedCash.className).not.toContain("bg-surface-2");
+});
+
+it("shows a debt's own liabilities as an explicit, separately-labeled subtraction — never a positive donut slice", () => {
+  render([makeItem({ key: "cash", amount: "100", percent: 100 })], "40");
+
+  // The breakdown itself never gained a "liabilities" slice — total_liabilities
+  // is deliberately never one of `breakdown`'s own entries (see
+  // net_worth_service.get_net_worth_summary's own comment on why a negative
+  // donut slice would misrepresent money owed).
+  expect(segments().map((el) => el.getAttribute("aria-label"))).toHaveLength(1);
+
+  const text = container.textContent ?? "";
+  expect(text).toMatch(/Обязательства/);
+  expect(text).toMatch(/-.*40/);
+});
+
+it("omits the liabilities callout entirely when there is nothing owed", () => {
+  render([makeItem({ key: "cash", amount: "100", percent: 100 })], "0");
+  expect(container.textContent ?? "").not.toMatch(/Обязательства/);
 });

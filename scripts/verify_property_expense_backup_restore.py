@@ -135,7 +135,7 @@ def main():
             raise RuntimeError(f'Legacy import failed: {status} {body[:500]!r}')
         status, body = http(base + '/backup/export')
         exported = json.loads(body)
-        if exported['aurum_backup_version'] != 10:
+        if exported['aurum_backup_version'] != 12:
             raise RuntimeError('Re-export did not upgrade to the current format version')
         tx_by_id = {t['id']: t for t in exported['transactions']}
         if tx_by_id[1]['expense_asset_id'] is not None:
