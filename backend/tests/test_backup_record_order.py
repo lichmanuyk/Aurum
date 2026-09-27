@@ -16,6 +16,7 @@ exercised or changed.
 from datetime import date
 
 from sqlalchemy import text
+from app.core.clock import business_today
 
 
 async def test_export_orders_accounts_by_id_regardless_of_insertion_order(client, test_sessionmaker):
@@ -40,7 +41,7 @@ async def test_export_orders_transactions_by_id_regardless_of_insertion_order(cl
             "(300, :acc, 'EXPENSE', 5, 'Synthetic C', :d), "
             "(100, :acc, 'EXPENSE', 6, 'Synthetic A', :d), "
             "(200, :acc, 'EXPENSE', 7, 'Synthetic B', :d)"
-        ), {"acc": account_id, "d": date.today()})
+        ), {"acc": account_id, "d": business_today()})
         await session.commit()
 
     payload = (await client.get("/backup/export")).json()
@@ -105,7 +106,7 @@ async def test_export_sorts_tag_ids_within_each_transaction(client, account_id, 
     tag_b = (await client.post("/tags", json={"name": "Synthetic tag B"})).json()["id"]
     created = await client.post("/transactions", json={
         "account_id": account_id, "type": "expense", "amount": "10.00",
-        "description": "Synthetic tagged expense", "date": str(date.today()),
+        "description": "Synthetic tagged expense", "date": str(business_today()),
         "tag_ids": [tag_c, tag_a, tag_b],
     })
     assert created.status_code == 201, created.text

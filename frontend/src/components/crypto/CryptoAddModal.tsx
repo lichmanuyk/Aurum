@@ -6,6 +6,7 @@ import { searchCryptoCoins } from "@/api/crypto";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Label, Select } from "@/components/ui/Input";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useCreateCryptoHolding, useCryptoHoldings, useCryptoPortfolios } from "@/hooks/useCrypto";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { CryptoSearchResult, RiskLevel } from "@/types";
@@ -26,6 +27,7 @@ interface CryptoAddModalProps {
  * import, there's nothing here worth a dedicated page for. */
 export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddModalProps) {
   const { t, language } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const [unknownCost, setUnknownCost] = useState(false);
   const createHolding = useCreateCryptoHolding();
   const { data: portfolios } = useCryptoPortfolios();
@@ -46,7 +48,11 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
   const [quoteCurrency, setQuoteCurrency] = useState(getCurrency());
   const [quantity, setQuantity] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`, so there's no brief flash
+  // of the wrong day before the first GET /api/settings resolves.
+  const [date, setDate] = useState("");
   // Defaults to "high", same as the backend default — crypto is this app's
   // own textbook HIGH risk example — but overridable per coin here.
   const [riskLevel, setRiskLevel] = useState<RiskLevel>("high");
@@ -61,12 +67,22 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
     setQuantity("");
     setPricePerUnit("");
     setUnknownCost(false);
-    setDate(new Date().toISOString().slice(0, 10));
+    // Reset to "" (not a re-guessed date) so the next open always re-fills
+    // from whatever the business date is *then* — a modal left closed
+    // across midnight must not reopen still holding yesterday's default.
+    setDate("");
     setRiskLevel("high");
     setNetwork("");
     setSearchError(null);
     setSaveError(null);
   }, [open]);
+
+  // Fills the "today" default in the first time the business date is
+  // available after the dialog opens — never overwrites a date the user
+  // has since edited (guarded by `date === ""`).
+  useEffect(() => {
+    if (open && businessDate) setDate((current) => (current === "" ? businessDate : current));
+  }, [open, businessDate]);
 
   // Re-picked every time the dialog opens or the portfolio list loads —
   // covers both "opened from a specific tab" and "opened from All before
@@ -244,6 +260,18 @@ export function CryptoAddModal({ open, onClose, defaultPortfolioId }: CryptoAddM
               value={date}
               onChange={(event) => setDate(event.target.value)}
             />
+            {date === "" && (
+              businessDateError ? (
+                <p className="mt-1 text-xs text-danger">
+                  {t("businessDate.error")}{" "}
+                  <button type="button" className="underline" onClick={retryBusinessDate}>
+                    {t("businessDate.retry")}
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+              )
+            )}
           </div>
 
           <div>

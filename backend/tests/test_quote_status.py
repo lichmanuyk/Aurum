@@ -5,27 +5,28 @@ from app.models.crypto import CryptoSyncState
 from tests.test_multicurrency import account, rate
 from tests.test_crypto import _add_bitcoin, _fake_fetch, _point
 from app.services import crypto_service
+from app.core.clock import business_today
 
 
 @pytest.mark.parametrize('age,status', [(0, 'current'), (2, 'previous'), (7, 'previous'), (8, 'missing'), (-1, 'missing')])
 async def test_fx_status_uses_publication_date_not_download_time(client, age, status):
     await client.patch('/settings', json={'currency': 'PLN'})
     await account(client, 'EUR')
-    await rate(client, date.today() - timedelta(days=age), value='4.3')
+    await rate(client, business_today() - timedelta(days=age), value='4.3')
     response = await client.get('/fx-rates/status')
     assert response.status_code == 200
     item = next(x for x in response.json()['fx'] if x['currency'] == 'EUR')
     assert item['status'] == status
     assert (item['rate_date'] is None) == (status == 'missing')
     if status != 'missing':
-        assert item['rate_date'] == str(date.today() - timedelta(days=age))
+        assert item['rate_date'] == str(business_today() - timedelta(days=age))
         assert item['saved_at'] and item['sources'] == ['manual']
 
 
 async def test_fx_status_resolves_same_date_pivot(client):
     await client.patch('/settings', json={'currency': 'USD'})
     await account(client, 'EUR')
-    day = date.today() - timedelta(days=2)
+    day = business_today() - timedelta(days=2)
     await rate(client, day, value='4.3')
     await rate(client, day, base='USD', value='4')
     item = next(x for x in (await client.get('/fx-rates/status')).json()['fx'] if x['currency'] == 'EUR')
@@ -69,11 +70,11 @@ async def test_automatic_nbp_refresh_is_recent_and_preserves_manual_rates(client
     from app.services import nbp_service
     await client.patch('/settings', json={'currency': 'PLN'})
     await account(client, 'EUR')
-    await rate(client, date.today(), value='4.3')
+    await rate(client, business_today(), value='4.3')
     before = (await client.get('/fx-rates')).json()
     async def fetch(currencies, start, end):
         assert 'EUR' in currencies
-        assert end == date.today() and start == end - timedelta(days=14)
+        assert end == business_today() and start == end - timedelta(days=14)
         return [dict(base_currency='EUR', quote_currency='PLN', rate_date=end, rate='4.9', source='NBP:A:test')]
     monkeypatch.setattr(nbp_service, 'fetch_rates', fetch)
     result = await client.post('/fx-rates/nbp/latest')

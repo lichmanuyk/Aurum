@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { ExpenseAssetSelect } from "@/components/transactions/ExpenseAssetSelect";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateRecurring, useUpdateRecurring } from "@/hooks/useRecurring";
 import { useTranslation } from "@/lib/i18n";
@@ -14,10 +15,6 @@ interface RecurringFormModalProps {
   open: boolean;
   onClose: () => void;
   recurring?: RecurringTransaction | null;
-}
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 const EMPTY_FORM = {
@@ -33,11 +30,15 @@ const EMPTY_FORM = {
   description: "",
   merchant: "",
   frequency: "monthly" as RecurringFrequency,
-  anchor_date: todayIso(),
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`.
+  anchor_date: "",
 };
 
 export function RecurringFormModal({ open, onClose, recurring }: RecurringFormModalProps) {
   const { t } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const createRecurring = useCreateRecurring();
@@ -66,6 +67,16 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
     }
     setError(null);
   }, [open, recurring, accounts]);
+
+  // Fills the "today" default in for a new (non-editing) template the
+  // first time the business date is available — never overwrites a date
+  // the user has since edited, or an existing template's own anchor_date
+  // (set above instead).
+  useEffect(() => {
+    if (open && !recurring && businessDate) {
+      setForm((prev) => (prev.anchor_date === "" ? { ...prev, anchor_date: businessDate } : prev));
+    }
+  }, [open, recurring, businessDate]);
 
   const relevantCategories = (categories ?? []).filter((category) =>
     form.type === "income" ? category.kind === "income" : category.kind === "expense"
@@ -186,6 +197,18 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
               value={form.anchor_date}
               onChange={(event) => setForm((prev) => ({ ...prev, anchor_date: event.target.value }))}
             />
+            {!recurring && form.anchor_date === "" && (
+              businessDateError ? (
+                <p className="mt-1 text-xs text-danger">
+                  {t("businessDate.error")}{" "}
+                  <button type="button" className="underline" onClick={retryBusinessDate}>
+                    {t("businessDate.retry")}
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+              )
+            )}
           </div>
         </div>
 

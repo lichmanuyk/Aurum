@@ -5,7 +5,6 @@ creates, edits, or infers a link, and never touches the asset's own
 valuation/monthly_cash_flow (Asset.monthly_cash_flow stays a separate,
 self-reported estimate — see models/asset.py).
 """
-from datetime import date as date_
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -13,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.clock import business_today
 from app.models.asset import Asset
 from app.models.enums import AssetClass, TransactionType
 from app.models.recurring import RecurringTransaction
@@ -47,7 +47,7 @@ def _validate_period_params(year: int | None, month: int | None) -> None:
     it's rejected outright too, same as an incompatible combination."""
     if month is not None and year is None:
         raise HTTPException(422, "month requires year")
-    if year is not None and year > date_.today().year:
+    if year is not None and year > business_today().year:
         raise HTTPException(422, "year cannot be in the future")
 
 

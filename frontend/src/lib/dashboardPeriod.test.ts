@@ -1,14 +1,5 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { dashboardLinkFor, parseDashboardPeriodParams, parseEndDateParam, visibleMonthCount } from "./dashboardPeriod";
-
-beforeEach(() => {
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-09-25T12:00:00Z"));
-});
-
-afterEach(() => {
-  vi.useRealTimers();
-});
 
 it("builds an all-time link with no year/month, a whole-year link with no month, and a specific-month link — every mode carrying the server's own end_date", () => {
   expect(dashboardLinkFor({ year: null, month: null }, "2026-09-25")).toBe("/transactions?period=all&end_date=2026-09-25");
@@ -56,9 +47,18 @@ it("falls back on an invalid month instead of silently landing on a wrong one", 
 });
 
 it("visibleMonthCount stops at the current month for the current year, and is 12 for any other year", () => {
-  expect(visibleMonthCount(2026)).toBe(9); // "today" is faked to 2026-09-25 above
-  expect(visibleMonthCount(2025)).toBe(12);
-  expect(visibleMonthCount(2030)).toBe(12);
+  // A plain string in, a plain number out — no system clock/timezone
+  // involved at all, unlike the old `new Date()`-based version: this is
+  // exactly the server's business date (see
+  // docs/tasks/business-date-timezone.md), passed in by the caller.
+  expect(visibleMonthCount(2026, "2026-09-25")).toBe(9);
+  expect(visibleMonthCount(2025, "2026-09-25")).toBe(12);
+  expect(visibleMonthCount(2030, "2026-09-25")).toBe(12);
+  // December of the current year offers all 12 of its own months, not 11 —
+  // an off-by-one here would silently hide the current month itself.
+  expect(visibleMonthCount(2026, "2026-12-31")).toBe(12);
+  // January 1st of the current year offers exactly that one month, not 0.
+  expect(visibleMonthCount(2026, "2026-01-01")).toBe(1);
 });
 
 it("parseEndDateParam reads the server-resolved boundary a dashboardLinkFor link carries, verbatim", () => {

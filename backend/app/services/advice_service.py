@@ -17,6 +17,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import business_today
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.enums import TransactionType
@@ -135,7 +136,7 @@ async def _savings_rate_trend_advice(session: AsyncSession, year: int, month: in
 
 
 async def get_advice(session: AsyncSession) -> AdviceResponse:
-    today = date.today()
+    today = business_today()
     generators = (_rising_category_advice, _unbudgeted_top_category_advice, _savings_rate_trend_advice)
 
     items: list[AdviceItem] = []

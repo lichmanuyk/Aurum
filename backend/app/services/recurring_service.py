@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.clock import business_today
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.category import Category
@@ -93,7 +94,7 @@ def _next_due_date(recurring: RecurringTransaction) -> date_:
 
 def _to_read(recurring: RecurringTransaction) -> RecurringTransactionRead:
     next_due = _next_due_date(recurring)
-    today = date_.today()
+    today = business_today()
     return RecurringTransactionRead(
         currency=recurring.account.currency,
         destination_currency=recurring.transfer_account.currency if recurring.transfer_account else None,
@@ -195,7 +196,7 @@ async def post_recurring(session: AsyncSession, recurring_id: int, payload: Recu
     null" (a malformed request, rejected outright)."""
     # Serialize competing clicks before checking the committed posting date.
     recurring = await _get_or_404(session, recurring_id, lock=True)
-    today = date_.today()
+    today = business_today()
     # Three different reasons a POST can't proceed right now, each its own
     # code (see docs/tasks/recurring-variable-payments.md). Checked in this
     # order deliberately: once `last_posted_date == today`, `_next_due_date`

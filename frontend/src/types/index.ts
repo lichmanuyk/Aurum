@@ -726,4 +726,13 @@ export interface AppSettings {
   /** Read-only: the running backend release. Comes back here rather than
    * from /api/health, which is served without auth. */
   app_version: string;
+  /** Read-only: the server's current business day (see
+   * docs/tasks/business-date-timezone.md) in `business_timezone` below —
+   * ISO `date` (`YYYY-MM-DD`), never the browser's own `Date()`. Every
+   * form/page default that means "today" reads this via useBusinessDate()
+   * (hooks/useBusinessDate.ts), not a client-computed date. */
+  business_date: string;
+  /** Read-only: the IANA zone `business_date` was computed in
+   * (`Europe/Warsaw` by default — see AURUM_BUSINESS_TIMEZONE). */
+  business_timezone: string;
 }

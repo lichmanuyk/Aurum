@@ -3,6 +3,7 @@ from datetime import date
 import httpx
 from app.services import crypto_service
 from tests.test_crypto import _fake_fetch, _point
+from app.core.clock import business_today
 
 async def test_opening_unknown_cost_survives_trades_and_backup(client, monkeypatch):
     monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('100')}))
@@ -36,7 +37,7 @@ async def test_buy_cannot_omit_price_and_opening_cannot_invent_it(client,monkeyp
 async def test_opening_quantity_tracks_live_capital_and_retains_last_price_on_outage(client, monkeypatch):
     monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('100')}))
     created = await client.post('/crypto/holdings', json=dict(
-        coingecko_id='bitcoin', symbol='BTC', name='Bitcoin', quantity='2', date=str(date.today())))
+        coingecko_id='bitcoin', symbol='BTC', name='Bitcoin', quantity='2', date=str(business_today())))
     assert created.status_code == 201, created.text
     holding = created.json()
     assert Decimal(holding['quantity']) == 2

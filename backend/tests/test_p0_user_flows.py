@@ -5,11 +5,12 @@ from decimal import Decimal
 
 from app.services import crypto_service
 from tests.test_crypto import _fake_fetch, _point
+from app.core.clock import business_today
 
 
 async def test_mixed_backup_restores_balances_reports_and_capital(client, categories, monkeypatch):
     monkeypatch.setattr(crypto_service, "_fetch_market_data", _fake_fetch({"bitcoin": _point("200")}))
-    today = str(date.today())
+    today = str(business_today())
     salary = categories["Salary"]["id"]
     groceries = categories["Groceries"]["id"]
 
@@ -34,8 +35,8 @@ async def test_mixed_backup_restores_balances_reports_and_capital(client, catego
 
     async def outcomes():
         balances = {row["id"]: Decimal(row["balance"]) for row in (await client.get("/accounts")).json()}
-        dashboard = (await client.get("/dashboard/summary", params={"year": date.today().year,
-                                                                      "month": date.today().month})).json()
+        dashboard = (await client.get("/dashboard/summary", params={"year": business_today().year,
+                                                                      "month": business_today().month})).json()
         flow = (await client.get("/cash-flow")).json()
         capital = (await client.get("/net-worth/summary")).json()
         report = (await client.get("/reports/category-spending", params={"category_id": groceries})).json()

@@ -1,11 +1,12 @@
 """Signed balance adjustments and lossless sub-cent ledger writes."""
 from datetime import date
 from decimal import Decimal
+from app.core.clock import business_today
 
 
 def adjustment(account_id, amount='100.123456', **fields):
     return dict(account_id=account_id, type='adjustment', amount=amount,
-                adjustment_reason='opening_balance', date=str(date.today()), description='Synthetic opening', **fields)
+                adjustment_reason='opening_balance', date=str(business_today()), description='Synthetic opening', **fields)
 
 
 async def test_adjustments_change_balance_not_income_and_survive_restore(client, account_id):
@@ -17,7 +18,7 @@ async def test_adjustments_change_balance_not_income_and_survive_restore(client,
     assert response.status_code == 201
     accounts = (await client.get('/accounts')).json()
     assert Decimal(next(a['balance'] for a in accounts if a['id'] == account_id)) == Decimal('100.120456')
-    summary = await client.get('/dashboard/summary', params={'year':date.today().year, 'month':date.today().month})
+    summary = await client.get('/dashboard/summary', params={'year':business_today().year, 'month':business_today().month})
     assert summary.status_code == 200, summary.text
     assert Decimal(summary.json()['real_income']) == Decimal(summary.json()['spent']) == 0
     cash = (await client.get('/cash-flow')).json()
@@ -45,13 +46,13 @@ async def test_adjustment_invariants_and_bulk_atomicity(client, account_id, cate
     assert (await client.get('/transactions')).json()['total'] == 0
     for kind in ('income','expense','transfer'):
         assert (await client.post('/transactions',json={**adjustment(account_id), 'type':kind})).status_code == 422
-    result = await client.post('/recurring',json={**adjustment(account_id),'frequency':'monthly','anchor_date':str(date.today())})
+    result = await client.post('/recurring',json={**adjustment(account_id),'frequency':'monthly','anchor_date':str(business_today())})
     assert result.status_code == 422
 
 
 async def test_subcent_transfer_override_split_and_old_backup(client, account_id, categories):
     target = (await client.post('/accounts',json={'name':'Synthetic EUR','currency':'EUR'})).json()['id']
-    income = dict(account_id=account_id,type='income',amount='1.000001',description='Synthetic precision',date=str(date.today()))
+    income = dict(account_id=account_id,type='income',amount='1.000001',description='Synthetic precision',date=str(business_today()))
     assert (await client.post('/transactions',json=income)).status_code == 201
     moved = await client.post('/transactions',json={**income,'type':'transfer','amount':'1','transfer_account_id':target,'destination_amount':'0.923456'})
     assert moved.status_code == 201, moved.text

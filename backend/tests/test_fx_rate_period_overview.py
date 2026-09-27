@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from tests.test_fx_rate_overview import nbp_rate
 from tests.test_multicurrency import account, tx
+from app.core.clock import business_today
 
 
 def prior_month(today: date) -> tuple[int, int]:
@@ -20,7 +21,7 @@ def by_pair(body: dict, base: str, quote: str) -> dict:
 
 
 async def test_latest_mode_reports_all_four_pairs_with_their_own_legs(client):
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.0000")
     await nbp_rate(client, "EUR", today, "4.3000")
     await nbp_rate(client, "BYN", today, "1.2500", table="B")
@@ -52,7 +53,7 @@ async def test_cross_rate_uses_independent_leg_dates_not_frozen_to_the_weekly_pi
     """The exact scenario the task calls out: USD changes between two BYN
     weekly (table B) publications — the cross must pick up the *new* USD
     leg, not silently re-use whatever day BYN's own leg pivoted on."""
-    today = date.today()
+    today = business_today()
     stale_day = today - timedelta(days=2)
     await nbp_rate(client, "USD", stale_day, "4.0000")
     await nbp_rate(client, "BYN", stale_day, "1.2500", table="B")
@@ -72,7 +73,7 @@ async def test_cross_rate_uses_independent_leg_dates_not_frozen_to_the_weekly_pi
 
 
 async def test_leg_older_than_the_carry_forward_window_is_unavailable_but_neighbours_remain(client):
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.0000")
     # BYN's only publication is 8 days old — one day past the 7-day
     # carry-forward limit shared with FXConverter.
@@ -88,7 +89,7 @@ async def test_leg_older_than_the_carry_forward_window_is_unavailable_but_neighb
 
 
 async def test_manual_rate_is_never_used_as_an_official_leg(client):
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.0000")
     manual = await client.post("/fx-rates/bulk", json={"items": [dict(
         base_currency="BYN", quote_currency="PLN", rate_date=str(today), rate="1.2500",
@@ -104,7 +105,7 @@ async def test_manual_rate_is_never_used_as_an_official_leg(client):
 async def test_average_mode_for_a_past_month_averages_calendar_days_with_weekend_carry_forward(client):
     import calendar
 
-    year, month = prior_month(date.today())
+    year, month = prior_month(business_today())
     start = date(year, month, 1)
     days_in_month = calendar.monthrange(year, month)[1]
     end = date(year, month, days_in_month)
@@ -132,7 +133,7 @@ async def test_average_mode_for_a_past_month_averages_calendar_days_with_weekend
 
 
 async def test_incomplete_average_coverage_is_explicit_never_a_partial_average(client):
-    year, month = prior_month(date.today())
+    year, month = prior_month(business_today())
     start = date(year, month, 1)
     # Only the first half of the month has any publication at all — the
     # second half has nothing to carry forward from (first-ever data lands
@@ -149,7 +150,7 @@ async def test_incomplete_average_coverage_is_explicit_never_a_partial_average(c
 
 
 async def test_ytd_mode_averages_from_start_of_year_to_today(client):
-    today = date.today()
+    today = business_today()
     start = date(today.year, 1, 1)
     # A publication every 6 days (within the 7-day carry-forward window)
     # across the whole year-to-date, so the average has full coverage.
@@ -169,7 +170,7 @@ async def test_ytd_mode_averages_from_start_of_year_to_today(client):
 
 
 async def test_future_period_is_rejected(client):
-    response = await client.get(f"/fx-rates/overview/period?year={date.today().year + 1}")
+    response = await client.get(f"/fx-rates/overview/period?year={business_today().year + 1}")
     assert response.status_code == 422
 
 
@@ -183,7 +184,7 @@ async def test_month_without_year_is_rejected_not_defaulted_to_the_current_year(
 
 async def test_out_of_range_month_is_a_422_not_a_500(client):
     for month in (0, 13, -1):
-        response = await client.get(f"/fx-rates/overview/period?year={date.today().year}&month={month}")
+        response = await client.get(f"/fx-rates/overview/period?year={business_today().year}&month={month}")
         assert response.status_code == 422, (month, response.text)
 
 
@@ -194,7 +195,7 @@ async def test_out_of_range_year_is_a_422_not_a_500(client):
 
 
 async def test_get_makes_no_writes_and_leaves_money_reports_untouched(client):
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.0000")
     usd_account, pln_account = await account(client, "USD"), await account(client, "PLN")
     await tx(client, usd_account, type="income", amount="1000", date=str(today))

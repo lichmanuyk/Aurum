@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.services import nbp_service
 from app.services.nbp_service import parse_tables
 from app.services.fx_service import FXConverter
+from app.core.clock import business_today
 
 
 def document(table='A', day='2025-01-02', rates=None):
@@ -53,7 +54,7 @@ async def test_nbp_import_idempotent_protects_manual_and_roundtrips(client,monke
 
 async def test_nbp_request_limits_and_failure_do_not_write(client,monkeypatch):
     bad=[dict(start_date='2025-01-01',end_date='2025-05-01',currencies=['EUR']),
-         dict(start_date=str(date.today()),end_date=str(date.today()+timedelta(days=1)),currencies=['EUR'])]
+         dict(start_date=str(business_today()),end_date=str(business_today()+timedelta(days=1)),currencies=['EUR'])]
     for payload in bad:
         assert (await client.post('/fx-rates/nbp',json=payload)).status_code==422
     async def fail(*args):raise HTTPException(502,'Synthetic unavailable')

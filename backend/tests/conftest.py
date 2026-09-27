@@ -13,6 +13,7 @@ import asyncio
 import os
 import subprocess
 from collections.abc import AsyncGenerator, Generator
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.deps import get_session
+from app.core import clock as clock_module
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.seed import seed_default_account, seed_default_app_settings, seed_default_categories
@@ -135,3 +137,45 @@ async def categories(client: AsyncClient) -> dict[str, dict]:
     """Default seeded categories keyed by name, e.g. categories["Groceries"]["id"]."""
     resp = await client.get("/categories")
     return {c["name"]: c for c in resp.json()}
+
+
+@pytest.fixture
+def freeze_business_clock(monkeypatch):
+    """Pins `app.core.clock.business_today()`/`business_now()` — and every
+    server-side "what day is it" rule that calls them (recurring "post now",
+    cash-linked crypto trades, dashboard/report period bounds, insights'
+    "not a future transaction yet" filter, ...) — to a caller-chosen instant,
+    without needing a time-freezing dependency (see app/core/clock.py's own
+    docstring on why: this project has none, and one monkeypatchable
+    function doesn't need one added).
+
+    Call with either:
+      - a `date` (or ISO string) — pinned to local Warsaw noon that day, an
+        offset safely away from both the UTC/Warsaw day boundary and any
+        DST transition's own 1–2am window, for tests that just want "today
+        is this Warsaw day" and don't care about the boundary itself; or
+      - a full aware `datetime` — for tests that *do* care about the exact
+        boundary (UTC-vs-Warsaw disagreement, a DST transition instant).
+
+    Monkeypatches `app.core.clock.utcnow` (the one real clock read in that
+    module) rather than `business_today` itself: business_now/business_today
+    look up `utcnow` in their own module's globals every call, so this one
+    patch reaches every module that did `from app.core.clock import
+    business_today` at import time, not just callers that happen to
+    re-fetch the function afterwards.
+    """
+
+    def _set(when: "date | datetime | str") -> None:
+        if isinstance(when, str):
+            when = date.fromisoformat(when)
+        if isinstance(when, datetime):
+            instant = when if when.tzinfo is not None else when.replace(tzinfo=timezone.utc)
+        else:
+            # Warsaw noon that day, expressed as the equivalent UTC instant
+            # via business_timezone() itself — correct across both DST
+            # offsets without hardcoding +1/+2.
+            local_noon = datetime.combine(when, time(12, 0), tzinfo=clock_module.business_timezone())
+            instant = local_noon.astimezone(timezone.utc)
+        monkeypatch.setattr(clock_module, "utcnow", lambda: instant)
+
+    return _set

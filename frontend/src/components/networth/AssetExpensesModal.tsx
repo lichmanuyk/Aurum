@@ -2,12 +2,15 @@ import { Fragment, useEffect, useState } from "react";
 import { Receipt } from "lucide-react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
+import { BusinessDateNotice } from "@/components/layout/BusinessDateNotice";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { PillSelector } from "@/components/layout/PillSelector";
 import { RecurringPaymentModal } from "@/components/recurring/RecurringPaymentModal";
 import { useAssetExpenses } from "@/hooks/useAssets";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useTransactionYears } from "@/hooks/useTransactions";
+import { businessDateYear } from "@/lib/businessDate";
 import { useSectionCurrency } from "@/lib/displayCurrency";
 import { visibleMonthCount } from "@/lib/dashboardPeriod";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
@@ -31,6 +34,10 @@ const PAGE_SIZE = 10;
  * reuses the existing recurring-payment flow unchanged). */
 export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalProps) {
   const { t } = useTranslation();
+  // The server's business date (see docs/tasks/business-date-timezone.md),
+  // not the browser's own `new Date()` — "Год" mode is disabled below
+  // until this is available (see MODE_OPTIONS' disabledValues).
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   // Same section currency the capital summary itself uses (see
   // useSectionCurrency) — the report's own total is then directly
   // comparable to the asset's own capital_value shown in AssetsTable.
@@ -120,15 +127,17 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
     if (value === "all") {
       setYear(null);
       setMonth(null);
-    } else {
-      setYear(new Date().getFullYear());
+    } else if (businessDate) {
+      // The "Год" pill is disabled below while !businessDate — never a
+      // browser-guessed year.
+      setYear(businessDateYear(businessDate));
       setMonth(null);
     }
   }
 
   function handleYearChange(newYear: number) {
     setYear(newYear);
-    setMonth((current) => (current !== null && current > visibleMonthCount(newYear) ? null : current));
+    setMonth((current) => (current !== null && businessDate && current > visibleMonthCount(newYear, businessDate) ? null : current));
     setPage(1);
   }
 
@@ -156,8 +165,17 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
       <Dialog open={reportDialogOpen} onClose={handleClose} title={t("netWorth.expenses.title", { name: asset.name })} size="lg">
         <div className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <PillSelector options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
-          {year !== null && (
+          <PillSelector
+            options={MODE_OPTIONS}
+            value={mode}
+            onChange={handleModeChange}
+            disabledValues={businessDate ? [] : ["year"]}
+          />
+          {!businessDate && <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} />}
+          {/* `year !== null` only ever happens through handleModeChange
+              above, already gated on businessDate — `businessDate &&` is
+              defense in depth, not a real fallback path. */}
+          {year !== null && businessDate && (
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <div className="min-w-0 flex-1">
                 <MonthSelector
@@ -166,11 +184,11 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
                     setMonth(value);
                     setPage(1);
                   }}
-                  maxMonth={visibleMonthCount(year)}
+                  maxMonth={visibleMonthCount(year, businessDate)}
                   allowAll
                 />
               </div>
-              <YearSelector years={years ?? [new Date().getFullYear()]} year={year} onChange={handleYearChange} />
+              <YearSelector years={years ?? [businessDateYear(businessDate)]} year={year} onChange={handleYearChange} />
             </div>
           )}
         </div>

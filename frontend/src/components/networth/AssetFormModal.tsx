@@ -5,6 +5,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAddAssetValuation, useCreateAsset, useUpdateAsset } from "@/hooks/useAssets";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useTranslation, type TranslationKey } from "@/lib/i18n";
 import type { Asset, AssetClass, CapitalRole, RiskLevel } from "@/types";
 
@@ -18,16 +19,15 @@ const ASSET_CLASSES: AssetClass[] = ["investments", "crypto", "real_estate", "ve
 const CAPITAL_ROLES: CapitalRole[] = ["income", "neutral", "drain"];
 const RISK_LEVELS: RiskLevel[] = ["low", "medium", "high"];
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 const EMPTY_FORM = {
   currency: getCurrency(),
   name: "",
   asset_class: "investments" as AssetClass,
   value: "",
-  as_of_date: todayIso(),
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`.
+  as_of_date: "",
   notes: "",
   capital_role: "neutral" as CapitalRole,
   monthly_cash_flow: "",
@@ -36,6 +36,7 @@ const EMPTY_FORM = {
 
 export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
   const { t } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const createAsset = useCreateAsset();
   const updateAsset = useUpdateAsset();
   const addValuation = useAddAssetValuation();
@@ -46,12 +47,16 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
   useEffect(() => {
     if (!open) return;
     if (asset) {
+      // Editing: this "date" is a *new* revaluation's as_of_date (see
+      // handleSubmit below), not the asset's own creation date — still
+      // defaults to "today", same as a brand-new asset, just filled by the
+      // same effect below rather than here.
       setForm({
         currency: asset.currency,
         name: asset.name,
         asset_class: asset.asset_class,
         value: asset.current_value,
-        as_of_date: todayIso(),
+        as_of_date: "",
         notes: asset.notes ?? "",
         capital_role: asset.capital_role,
         monthly_cash_flow: asset.monthly_cash_flow ?? "",
@@ -62,6 +67,15 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
     }
     setError(null);
   }, [open, asset]);
+
+  // Fills the "today" default in the first time the business date is
+  // available after the dialog opens — never overwrites a date the user
+  // has since edited (guarded by `as_of_date === ""`).
+  useEffect(() => {
+    if (open && businessDate) {
+      setForm((prev) => (prev.as_of_date === "" ? { ...prev, as_of_date: businessDate } : prev));
+    }
+  }, [open, businessDate]);
 
   const isSaving = createAsset.isPending || updateAsset.isPending || addValuation.isPending;
 
@@ -159,6 +173,18 @@ export function AssetFormModal({ open, onClose, asset }: AssetFormModalProps) {
               value={form.as_of_date}
               onChange={(event) => setForm((prev) => ({ ...prev, as_of_date: event.target.value }))}
             />
+            {form.as_of_date === "" && (
+              businessDateError ? (
+                <p className="mt-1 text-xs text-danger">
+                  {t("businessDate.error")}{" "}
+                  <button type="button" className="underline" onClick={retryBusinessDate}>
+                    {t("businessDate.retry")}
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+              )
+            )}
           </div>
         </div>
 

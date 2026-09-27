@@ -15,6 +15,7 @@ from decimal import Decimal
 from httpx import AsyncClient
 
 from tests.helpers import money, txn_payload as _txn
+from app.core.clock import business_today
 
 
 async def test_income_ranking_sorted_descending_with_percent_scoped_to_income_total(
@@ -44,7 +45,7 @@ async def test_ranking_never_includes_transfers_adjustments_or_asset_trades_in_e
     income, an expense, a transfer between own accounts, an opening-balance
     adjustment and a manual asset purchase all in the same period — only
     the income and the expense may surface in the two ranking lists."""
-    today = date.today()
+    today = business_today()
     salary = categories["Salary"]["id"]
     groceries = categories["Groceries"]["id"]
 

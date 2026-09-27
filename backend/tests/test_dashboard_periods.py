@@ -23,13 +23,14 @@ import pytest
 from httpx import AsyncClient
 
 from tests.helpers import money, txn_payload as _txn
+from app.core.clock import business_today
 
 
 async def test_bare_call_still_means_the_current_month_exactly_as_before(client: AsyncClient, account_id, categories):
     """The original contract: no params at all == current year/month —
     must keep resolving this way even though the Dashboard's own frontend
     now always sends an explicit `period` (see api/dashboard.ts)."""
-    today = date.today()
+    today = business_today()
     salary = categories["Salary"]["id"]
     await client.post("/transactions", json=_txn(account_id, type="income", amount="500.00", category_id=salary, date=str(today)))
     last_month = (today.replace(day=1) - timedelta(days=1))
@@ -43,7 +44,7 @@ async def test_bare_call_still_means_the_current_month_exactly_as_before(client:
 
 
 async def test_month_alone_still_resolves_against_the_current_year_exactly_as_before(client: AsyncClient, account_id, categories):
-    today = date.today()
+    today = business_today()
     salary = categories["Salary"]["id"]
     await client.post("/transactions", json=_txn(account_id, type="income", amount="321.00", category_id=salary, date=f"{today.year}-01-15"))
 
@@ -90,7 +91,7 @@ async def test_period_year_is_the_explicit_opt_in_for_every_month_of_that_past_y
 
 
 async def test_period_year_defaults_to_the_current_year_when_year_is_omitted(client: AsyncClient, account_id, categories):
-    today = date.today()
+    today = business_today()
     salary = categories["Salary"]["id"]
     await client.post("/transactions", json=_txn(account_id, type="income", amount="77.00", category_id=salary, date=str(today)))
 
@@ -111,11 +112,11 @@ async def test_a_past_years_all_months_arent_clipped_even_though_they_predate_to
     assert money(resp.json()["spent"]) == Decimal("42.00")
 
 
-@pytest.mark.skipif(date.today().month == 12 and date.today().day == 31, reason="no room left in the current year to place a synthetic future date")
+@pytest.mark.skipif(business_today().month == 12 and business_today().day == 31, reason="no room left in the current year to place a synthetic future date")
 async def test_all_time_and_the_current_years_all_months_clip_to_today_not_a_stray_future_date(
     client: AsyncClient, account_id, categories
 ):
-    today = date.today()
+    today = business_today()
     future_this_year = date(today.year, 12, 31)
     salary = categories["Salary"]["id"]
     await client.post("/transactions", json=_txn(account_id, type="income", amount="100.00", category_id=salary, date=str(today)))
@@ -142,7 +143,7 @@ async def test_transfers_adjustments_asset_trades_and_splits_behave_the_same_in_
     opening-balance adjustment and a manual asset purchase, all checked
     under "all time" — the exact same exclusions/rollup as the existing
     single-month behavior (test_dashboard.py), just over a wider period."""
-    today = date.today()
+    today = business_today()
     groceries = categories["Groceries"]["id"]
     salary = categories["Salary"]["id"]
     sweets = (
@@ -179,7 +180,7 @@ async def test_transfers_adjustments_asset_trades_and_splits_behave_the_same_in_
 async def test_missing_historical_rate_is_an_explicit_error_in_all_time_mode_too(client: AsyncClient, categories):
     await client.patch("/settings", json={"currency": "PLN"})
     eur = (await client.post("/accounts", json={"name": "DP EUR", "currency": "EUR"})).json()["id"]
-    await client.post("/transactions", json=_txn(eur, category_id=categories["Groceries"]["id"], date=str(date.today())))
+    await client.post("/transactions", json=_txn(eur, category_id=categories["Groceries"]["id"], date=str(business_today())))
 
     response = await client.get("/dashboard/summary", params={"period": "all"})
     assert response.status_code == 409, response.text

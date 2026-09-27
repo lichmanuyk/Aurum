@@ -616,6 +616,14 @@ const ru = {
   "months.oct": "Окт",
   "months.nov": "Ноя",
   "months.dec": "Дек",
+
+  // useBusinessDate() (see docs/tasks/business-date-timezone.md) — the
+  // server's current day in Europe/Warsaw, read once at app load and kept
+  // fresh. Never a client-guessed browser date, so these three states cover
+  // the whole lifecycle instead of a silent fallback.
+  "businessDate.loading": "Загрузка даты…",
+  "businessDate.error": "Не удалось получить дату с сервера",
+  "businessDate.retry": "Повторить",
 };
 
 const en: Record<keyof typeof ru, string> = {
@@ -1226,6 +1234,10 @@ const en: Record<keyof typeof ru, string> = {
   "months.oct": "Oct",
   "months.nov": "Nov",
   "months.dec": "Dec",
+
+  "businessDate.loading": "Loading date…",
+  "businessDate.error": "Could not get the date from the server",
+  "businessDate.retry": "Retry",
 };
 
 const translations: Record<Language, Record<keyof typeof ru, string>> = { ru, en };

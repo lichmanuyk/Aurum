@@ -3,12 +3,12 @@ import asyncio
 from datetime import date
 from decimal import Decimal
 import pytest
+from app.core.clock import business_today
 from app.models.enums import RecurringFrequency
-from app.services import recurring_service
 from app.services.recurring_service import _advance
 
 async def template(client, account_id, **changes):
-    payload=dict(account_id=account_id,type='expense',amount='10',description='Synthetic subscription',frequency='monthly',anchor_date=str(date.today()))
+    payload=dict(account_id=account_id,type='expense',amount='10',description='Synthetic subscription',frequency='monthly',anchor_date=str(business_today()))
     response=await client.post('/recurring',json={**payload,**changes})
     assert response.status_code==201,response.text
     return response.json()
@@ -26,25 +26,18 @@ async def test_posting_is_atomic_and_rejects_double_click(client,account_id):
     assert sorted(r.status_code for r in responses)==[201,409]
     rows=(await client.get('/transactions')).json()
     assert rows['total']==1 and Decimal(rows['items'][0]['amount'])==10
-    assert (await client.get('/recurring')).json()[0]['last_posted_date']==str(date.today())
+    assert (await client.get('/recurring')).json()[0]['last_posted_date']==str(business_today())
 
-async def test_monthly_post_waits_for_next_due_date_and_preserves_each_month(client, account_id, monkeypatch):
-    class Clock(date):
-        current = date(2026, 1, 15)
-
-        @classmethod
-        def today(cls):
-            return cls.current
-
-    monkeypatch.setattr(recurring_service, 'date_', Clock)
+async def test_monthly_post_waits_for_next_due_date_and_preserves_each_month(client, account_id, freeze_business_clock):
+    freeze_business_clock(date(2026, 1, 15))
     t = await template(client, account_id, anchor_date='2026-01-15')
     url = f"/recurring/{t['id']}/post"
     assert (await client.post(url)).status_code == 201
     assert (await client.post(url)).status_code == 409
-    Clock.current = date(2026, 2, 14)
+    freeze_business_clock(date(2026, 2, 14))
     assert (await client.post(url)).status_code == 409
     assert (await client.get('/recurring')).json()[0]['next_due_date'] == '2026-02-15'
-    Clock.current = date(2026, 2, 15)
+    freeze_business_clock(date(2026, 2, 15))
     assert (await client.post(url)).status_code == 201
     assert (await client.post(url)).status_code == 409
     rows = (await client.get('/transactions')).json()

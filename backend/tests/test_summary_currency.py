@@ -6,6 +6,7 @@ import pytest
 from tests.test_multicurrency import account, rate, tx
 from tests.test_crypto import _fake_fetch, _point
 from app.services import crypto_service
+from app.core.clock import business_today
 
 
 async def test_dashboard_uses_historical_rates_without_changing_primary_or_ledger(client, categories):
@@ -15,7 +16,7 @@ async def test_dashboard_uses_historical_rates_without_changing_primary_or_ledge
         await rate(client, day, value=value)
         await rate(client, day, base='USD', value='2')
         await tx(client, eur, date=day, category_id=categories['Groceries']['id'])
-    await rate(client, date.today(), value='9')
+    await rate(client, business_today(), value='9')
     before = (await client.get('/backup/export')).json()
     for currency, expected in [('PLN', '900'), ('USD', '450'), ('EUR', '200')]:
         result = await client.get('/dashboard/summary', params={'year': 2025, 'month': 1, 'currency': currency})
@@ -38,7 +39,7 @@ async def test_year_boundary_uses_each_dates_fx_and_missing_rate_is_explicit(cli
         await rate(client, day, value=eur_rate)
         await rate(client, day, base='USD', value='2')
         await tx(client, eur, type='income', amount='100', date=day)
-    await rate(client, date.today(), value='9')
+    await rate(client, business_today(), value='9')
     before = (await client.get('/backup/export')).json()
     for year, month, expected in [
         (2025, 12, {'PLN': 400, 'USD': 200, 'EUR': 100}),
@@ -65,9 +66,9 @@ async def test_year_boundary_uses_each_dates_fx_and_missing_rate_is_explicit(cli
 async def test_net_worth_currency_is_request_scoped_even_for_concurrent_reads(client):
     await client.patch('/settings', json={'currency': 'PLN'})
     eur = await account(client, 'EUR')
-    yesterday = date.today() - timedelta(days=1)
+    yesterday = business_today() - timedelta(days=1)
     await tx(client, eur, type='income', date=str(yesterday))
-    for day, value in [(yesterday, '4'), (date.today(), '5')]:
+    for day, value in [(yesterday, '4'), (business_today(), '5')]:
         await rate(client, day, value=value)
         await rate(client, day, base='USD', value='2')
     responses = await asyncio.gather(*(client.get('/net-worth/summary', params={'range': 'all', 'currency': c}) for c in ('EUR', 'USD', 'PLN')))
@@ -82,11 +83,11 @@ async def test_net_worth_currency_is_request_scoped_even_for_concurrent_reads(cl
 
 async def test_crypto_display_conversion_keeps_native_quotes_and_quantities(client, monkeypatch):
     await client.patch('/settings', json={'currency': 'PLN'})
-    await rate(client, date.today(), base='USD', value='4')
-    await rate(client, date.today(), value='5')
+    await rate(client, business_today(), base='USD', value='4')
+    await rate(client, business_today(), value='5')
     monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('50000')}))
     created = await client.post('/crypto/holdings', json={'coingecko_id': 'bitcoin', 'symbol': 'BTC', 'name': 'Bitcoin',
-        'quantity': '0.5', 'price_per_unit': None, 'quote_currency': 'USD', 'date': str(date.today())})
+        'quantity': '0.5', 'price_per_unit': None, 'quote_currency': 'USD', 'date': str(business_today())})
     assert created.status_code == 201, created.text
     before = (await client.get('/backup/export')).json()
     for currency, value in [('PLN', 100000), ('USD', 25000), ('EUR', 20000)]:

@@ -1,10 +1,11 @@
 """Read-only freshness information; never fetch quotes or revalue money."""
-from datetime import date, datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.core.clock import business_today
 from app.models.crypto import CryptoHolding, CryptoSyncState
 from app.models.fx import FXRate
 from app.services.fx_service import FXConverter
@@ -21,7 +22,7 @@ FX_OVERVIEW_CURRENCIES = ("USD", "EUR", "BYN", "RUB")
 
 
 async def quote_status(session):
-    today = date.today()
+    today = business_today()
     settings = await get_or_create_app_settings(session)
     currencies = set(await session.scalars(select(Account.currency).where(Account.is_archived.is_(False))))
     currencies.update(await session.scalars(select(Asset.currency)))
@@ -59,7 +60,7 @@ async def fx_rate_overview(session):
     (see fx_service.py), but showing it here would present a user-typed
     number as an official quote, which the source explicitly must not do.
     Reads only what's already saved — never calls NBP itself."""
-    today = date.today()
+    today = business_today()
     settings = await get_or_create_app_settings(session)
     rates = [r for r in (await session.scalars(select(FXRate))).all() if r.source.startswith("NBP:")]
     lookup = {(r.base_currency, r.quote_currency, r.rate_date): r for r in rates}

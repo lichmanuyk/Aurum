@@ -1,9 +1,8 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_session
+from app.core.clock import business_today
 from app.models.budget import Budget
 from app.schemas.budget import BudgetCreate, BudgetRead, BudgetStatusResponse, BudgetUpdate
 from app.services.budget_service import create_budget, delete_budget, get_budget_status, list_budgets, update_budget
@@ -30,8 +29,8 @@ async def read_budgets(session: AsyncSession = Depends(get_session)) -> list[Bud
 
 @router.get("/status", response_model=BudgetStatusResponse)
 async def read_budget_status(
-    year: int = Query(default_factory=lambda: date.today().year, ge=2000, le=2100),
-    month: int = Query(default_factory=lambda: date.today().month, ge=1, le=12),
+    year: int = Query(default_factory=lambda: business_today().year, ge=2000, le=2100),
+    month: int = Query(default_factory=lambda: business_today().month, ge=1, le=12),
     session: AsyncSession = Depends(get_session),
 ) -> BudgetStatusResponse:
     return await get_budget_status(session, year, month)

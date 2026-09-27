@@ -23,6 +23,7 @@ from decimal import Decimal
 import pytest
 
 from tests.helpers import money, txn_payload
+from app.core.clock import business_today
 from tests.test_property_expense_links import asset, rate
 from tests.test_recurring import template
 
@@ -93,7 +94,7 @@ async def test_month_without_year_is_rejected_not_silently_treated_as_all_time(c
 
 async def test_year_entirely_in_the_future_is_rejected_not_a_silent_empty_range(client, account_id):
     a = await asset(client)
-    future_year = date.today().year + 5
+    future_year = business_today().year + 5
     response = await client.get(f"/assets/{a['id']}/expenses", params={"year": future_year})
     assert response.status_code == 422, response.text
 
@@ -104,7 +105,7 @@ async def test_current_year_future_month_still_resolves_to_a_legitimate_empty_pe
     # dashboard_service._resolve_bounds already does elsewhere in the app —
     # this only guards against a regression narrowing that further.
     a = await asset(client)
-    today = date.today()
+    today = business_today()
     if today.month == 12:
         pytest.skip("no future month exists in December to exercise this case")
     response = await client.get(f"/assets/{a['id']}/expenses", params={"year": today.year, "month": 12})

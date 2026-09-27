@@ -4,17 +4,20 @@ import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Label, Select } from "@/components/ui/Input";
+import { BusinessDateNotice } from "@/components/layout/BusinessDateNotice";
 import { PillSelector } from "@/components/layout/PillSelector";
 import { YearRangeSelector } from "@/components/layout/YearSelector";
 import { CategoryRankingCard } from "@/components/reports/CategoryRankingCard";
 import { CategorySpendingChart } from "@/components/reports/CategorySpendingChart";
 import { TransactionsTable } from "@/components/transactions/TransactionsTable";
 import { TransactionFormModal } from "@/components/transactions/TransactionFormModal";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useCategories } from "@/hooks/useCategories";
 import { useCategoryRanking, useCategorySpendingReport } from "@/hooks/useReports";
 import { useDeleteTransaction, useTransactions, useTransactionYears } from "@/hooks/useTransactions";
 import type { TransactionSort } from "@/api/transactions";
-import { computeRange, parseRangeParam, parseYearRangeParam, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
+import { businessDateYear } from "@/lib/businessDate";
+import { computeRange, parseRangeParam, DATE_DEPENDENT_RANGE_PRESETS, type CustomYearRange, type RangePreset } from "@/lib/dateRange";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
 import type { Transaction } from "@/types";
@@ -30,9 +33,27 @@ function parseCategoryIdParam(value: string | null): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** `null` — never a browser-guessed year — unless BOTH `from_year`/`to_year`
+ * parse as real positive integers straight out of the URL (a genuine deep
+ * link from Cash Flow's category lists, see reportsLinkFor in
+ * lib/dateRange.ts): that explicit pair needs no business date and must
+ * never be second-guessed by it either. */
+function parseExplicitCustomRange(searchParams: URLSearchParams): CustomYearRange | null {
+  const fromRaw = searchParams.get("from_year");
+  const toRaw = searchParams.get("to_year");
+  if (fromRaw === null || toRaw === null) return null;
+  const fromYear = Number(fromRaw);
+  const toYear = Number(toRaw);
+  if (!Number.isInteger(fromYear) || fromYear <= 0 || !Number.isInteger(toYear) || toYear <= 0) return null;
+  return { fromYear, toYear };
+}
+
 export function ReportsPage() {
   const { t, language } = useTranslation();
-  const now = new Date();
+  // The server's business date (see docs/tasks/business-date-timezone.md),
+  // not the browser's own `new Date()` — computeRange below sends
+  // `endDate` straight through as GET /reports' inclusive upper bound.
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const RANGE_OPTIONS: Array<{ value: RangePreset; label: string }> = [
     { value: "all", label: t("reports.rangeAll") },
     { value: "this_year", label: t("reports.rangeThisYear") },
@@ -58,10 +79,19 @@ export function ReportsPage() {
     () => searchParams.get("include_subcategories") === "1"
   );
   const [range, setRange] = useState<RangePreset>(() => parseRangeParam(searchParams.get("range"), "all"));
-  const [customRange, setCustomRange] = useState<CustomYearRange>(() => ({
-    fromYear: parseYearRangeParam(searchParams.get("from_year"), now.getFullYear()),
-    toYear: parseYearRangeParam(searchParams.get("to_year"), now.getFullYear()),
-  }));
+  // `null` until seeded — either immediately from an explicit URL pair, or
+  // once from the real business date the first time it loads (see the
+  // effect below). Once set, only the user's own YearRangeSelector picks
+  // ever change it again — a later business-date poll (including a
+  // midnight rollover) never resets an already-open/hand-picked range.
+  const explicitCustomRangeFromUrl = useRef(parseExplicitCustomRange(searchParams)).current;
+  const [customRange, setCustomRange] = useState<CustomYearRange | null>(explicitCustomRangeFromUrl);
+  const customRangeSeeded = useRef(explicitCustomRangeFromUrl !== null);
+  useEffect(() => {
+    if (customRangeSeeded.current || !businessDate) return;
+    customRangeSeeded.current = true;
+    setCustomRange((current) => current ?? { fromYear: businessDateYear(businessDate), toYear: businessDateYear(businessDate) });
+  }, [businessDate]);
   const [sort, setSort] = useState<TransactionSort>("date_desc");
   const [page, setPage] = useState(1);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -74,9 +104,17 @@ export function ReportsPage() {
     }
   }, [categories, categoryId]);
 
-  const { startDate, endDate } = computeRange(range, customRange);
-  const { data: ranking, isLoading: isRankingLoading, error: rankingError } = useCategoryRanking("expense", startDate, endDate);
-  const { data: report, isLoading: isReportLoading, error: reportError } = useCategorySpendingReport(categoryId, startDate, endDate);
+  const computed = computeRange(range, businessDate, customRange ?? undefined);
+  // Same defensive edge as CashFlowPage.tsx's own boundsReady — see there
+  // for why this is unreachable through the UI (the "Custom" pill is
+  // disabled below until businessDate is ready) but checked anyway.
+  const boundsReady = computed.status === "ready" && !(range === "custom" && customRange === null);
+  const { startDate, endDate } = boundsReady && computed.status === "ready" ? computed : {};
+
+  const { data: ranking, isLoading: isRankingLoading, error: rankingError } =
+    useCategoryRanking("expense", startDate, endDate, { enabled: boundsReady });
+  const { data: report, isLoading: isReportLoading, error: reportError } =
+    useCategorySpendingReport(categoryId, startDate, endDate, { enabled: boundsReady });
   const { data: transactions, isLoading: isTransactionsLoading } = useTransactions({
     category_id: categoryId ?? undefined,
     include_subcategories: includeSubcategories,
@@ -85,7 +123,7 @@ export function ReportsPage() {
     sort,
     page,
     page_size: PAGE_SIZE,
-  });
+  }, { enabled: boundsReady });
   const deleteTransaction = useDeleteTransaction();
 
   // Hierarchical within each group (a subcategory right under its own
@@ -156,10 +194,11 @@ export function ReportsPage() {
               setRange(value);
               setPage(1);
             }}
+            disabledValues={businessDate ? [] : DATE_DEPENDENT_RANGE_PRESETS}
           />
-          {range === "custom" && (
+          {range === "custom" && customRange && (
             <YearRangeSelector
-              years={years ?? [now.getFullYear()]}
+              years={years ?? [customRange.fromYear]}
               fromYear={customRange.fromYear}
               toYear={customRange.toYear}
               onChange={(value) => {
@@ -171,59 +210,65 @@ export function ReportsPage() {
         </div>
       </div>
 
-      {reportError ? <MoneyError error={reportError} /> : <CategorySpendingChart report={report} isLoading={isReportLoading} />}
+      {!boundsReady ? (
+        <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} className="text-sm text-text-muted" />
+      ) : (
+        <>
+          {reportError ? <MoneyError error={reportError} /> : <CategorySpendingChart report={report} isLoading={isReportLoading} />}
 
-      <MoneyError error={rankingError} />
-      {!rankingError && <CategoryRankingCard
-        items={ranking?.items ?? []}
-        isLoading={isRankingLoading}
-        selectedCategoryId={categoryId}
-        onSelectCategory={(id) => {
-          setCategoryId(id);
-          setIncludeSubcategories(true);
-          setPage(1);
-        }}
-      />}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("reports.transactionsTitle")}</CardTitle>
-          {transactions && (
-            <span className="text-xs text-text-muted">{t("common.totalCount", { count: transactions.total })}</span>
-          )}
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={sort}
-            onChange={(event) => {
-              setSort(event.target.value as TransactionSort);
+          <MoneyError error={rankingError} />
+          {!rankingError && <CategoryRankingCard
+            items={ranking?.items ?? []}
+            isLoading={isRankingLoading}
+            selectedCategoryId={categoryId}
+            onSelectCategory={(id) => {
+              setCategoryId(id);
+              setIncludeSubcategories(true);
               setPage(1);
             }}
-            className="mb-3 sm:w-56"
-          >
-            <option value="date_desc">{t("transactions.sortDateDesc")}</option>
-            <option value="amount_desc">{t("transactions.sortAmountDesc")}</option>
-            <option value="amount_asc">{t("transactions.sortAmountAsc")}</option>
-          </Select>
-          {isTransactionsLoading ? (
-            <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
-          ) : (
-            <TransactionsTable items={transactions?.items ?? []} onEdit={handleEdit} onDelete={handleDelete} />
-          )}
+          />}
 
-          {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-center gap-3 text-sm">
-              <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                {t("common.back")}
-              </Button>
-              <span className="text-text-muted">{t("common.pageOf", { page, total: totalPages })}</span>
-              <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                {t("common.next")}
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("reports.transactionsTitle")}</CardTitle>
+              {transactions && (
+                <span className="text-xs text-text-muted">{t("common.totalCount", { count: transactions.total })}</span>
+              )}
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={sort}
+                onChange={(event) => {
+                  setSort(event.target.value as TransactionSort);
+                  setPage(1);
+                }}
+                className="mb-3 sm:w-56"
+              >
+                <option value="date_desc">{t("transactions.sortDateDesc")}</option>
+                <option value="amount_desc">{t("transactions.sortAmountDesc")}</option>
+                <option value="amount_asc">{t("transactions.sortAmountAsc")}</option>
+              </Select>
+              {isTransactionsLoading ? (
+                <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
+              ) : (
+                <TransactionsTable items={transactions?.items ?? []} onEdit={handleEdit} onDelete={handleDelete} />
+              )}
+
+              {totalPages > 1 && (
+                <div className="mt-4 flex items-center justify-center gap-3 text-sm">
+                  <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    {t("common.back")}
+                  </Button>
+                  <span className="text-text-muted">{t("common.pageOf", { page, total: totalPages })}</span>
+                  <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    {t("common.next")}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <TransactionFormModal
         open={modalOpen}

@@ -2,10 +2,11 @@
 uses, explicit about what it can't convert, never a fabricated 0 or 1:1."""
 from datetime import date, timedelta
 from decimal import Decimal
+from app.core.clock import business_today
 
 
 async def make_asset(client, **fields):
-    payload = dict(name='Synthetic asset', asset_class='other', currency='USD', value='100', as_of_date=str(date.today()))
+    payload = dict(name='Synthetic asset', asset_class='other', currency='USD', value='100', as_of_date=str(business_today()))
     payload.update(fields)
     response = await client.post('/assets', json=payload)
     assert response.status_code == 201, response.text
@@ -14,7 +15,7 @@ async def make_asset(client, **fields):
 
 async def rate(client, base, quote, value, day=None):
     response = await client.post('/fx-rates/bulk', json={'items': [
-        dict(base_currency=base, quote_currency=quote, rate_date=str(day or date.today()), rate=value)
+        dict(base_currency=base, quote_currency=quote, rate_date=str(day or business_today()), rate=value)
     ]})
     assert response.status_code == 200, response.text
 
@@ -51,7 +52,7 @@ async def test_zero_valuation_is_a_real_convertible_zero_not_missing(client):
 
 
 async def test_future_only_valuation_has_no_capital_value_yet(client):
-    tomorrow = str(date.today() + timedelta(days=1))
+    tomorrow = str(business_today() + timedelta(days=1))
     asset = await make_asset(client, name='Not valued yet', value='500', as_of_date=tomorrow)
     fetched = await by_name(client, 'Not valued yet')
     assert Decimal(fetched['current_value']) == 0  # unchanged pre-existing fallback

@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_session
 from app.core.audit import log_destructive
+from app.core.clock import business_today
 from app.models.asset import Asset
 from app.models.category import Category
 from app.models.enums import AssetClass, CategoryKind, TransactionType
@@ -237,7 +238,7 @@ async def list_transaction_years(session: AsyncSession = Depends(get_session)) -
     still shows up (as zero) instead of silently disappearing from the UI."""
     bounds = await session.execute(select(func.min(Transaction.date), func.max(Transaction.date)))
     min_date, max_date = bounds.one()
-    current_year = date_.today().year
+    current_year = business_today().year
     if min_date is None:
         return [current_year]
     return list(range(min_date.year, max(max_date.year, current_year) + 1))

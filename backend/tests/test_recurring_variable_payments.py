@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 
 from tests.test_recurring import template
+from app.core.clock import business_today
 
 
 async def eur_account(client):
@@ -135,7 +136,7 @@ async def test_concurrent_overridden_posts_create_exactly_one_transaction_and_on
     rows = (await client.get("/transactions")).json()
     assert rows["total"] == 1 and Decimal(rows["items"][0]["amount"]) == Decimal("77.00")
     assert Decimal((await client.get("/accounts")).json()[0]["balance"]) == Decimal("-77.00")
-    assert (await client.get("/recurring")).json()[0]["last_posted_date"] == str(date.today())
+    assert (await client.get("/recurring")).json()[0]["last_posted_date"] == str(business_today())
 
 
 async def test_409_carries_a_distinct_code_for_each_of_its_three_causes(client, account_id):
@@ -149,7 +150,7 @@ async def test_409_carries_a_distinct_code_for_each_of_its_three_causes(client, 
     assert already_posted.status_code == 409
     assert already_posted.json()["detail"]["code"] == "ALREADY_POSTED"
 
-    tomorrow = str(date.today() + timedelta(days=1))
+    tomorrow = str(business_today() + timedelta(days=1))
     not_due = await template(client, account_id, anchor_date=tomorrow, description="Synthetic not due yet")
     not_due_response = await client.post(f"/recurring/{not_due['id']}/post")
     assert not_due_response.status_code == 409

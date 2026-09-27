@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.clock import business_today
 from app.core.config import get_settings
 from app.models.asset import Asset, AssetValuation
 from app.models.crypto import CryptoHolding, CryptoPortfolio, CryptoSyncState, CryptoTransaction
@@ -209,7 +210,7 @@ def _to_read(holding: CryptoHolding, fx: FXConverter) -> CryptoHoldingRead:
     with localcontext() as ctx:
         ctx.prec = 80
         for tx in sorted(holding.transactions, key=lambda t: (t.date, t.id)):
-            if tx.date > date_.today():
+            if tx.date > business_today():
                 continue
             if tx.type != CryptoTransactionType.SELL:
                 try:
@@ -234,7 +235,7 @@ def _to_read(holding: CryptoHolding, fx: FXConverter) -> CryptoHoldingRead:
     current_price = None
     try:
         if holding.last_price is not None:
-            current_price = fx.convert(holding.last_price, holding.asset.currency, date_.today(), quantize=False)
+            current_price = fx.convert(holding.last_price, holding.asset.currency, business_today(), quantize=False)
     except HTTPException as exc:
         if exc.status_code != 409:
             raise
@@ -419,7 +420,7 @@ async def refresh_prices(session: AsyncSession, *, force: bool, portfolio_id: in
             # values instead of an empty/broken page over an external outage.
             error_key = "unreachable"
         else:
-            today = date_.today()
+            today = business_today()
             for holding in holdings:
                 point = market_data[holding.asset.currency].get(holding.coingecko_id)
                 if point is None:
@@ -520,7 +521,7 @@ async def create_holding(session: AsyncSession, payload: CryptoHoldingCreate) ->
             holding.price_change_7d = point.change_7d
             holding.price_change_30d = point.change_30d
             holding.price_change_1y = point.change_1y
-            await _upsert_valuation(session, asset.id, payload.quantity * point.price, date_.today())
+            await _upsert_valuation(session, asset.id, payload.quantity * point.price, business_today())
         # This counts as a real sync — bump the shared timestamp so the next
         # GET /crypto/holdings doesn't immediately re-fetch every holding
         # again a moment later (see refresh_prices' one-hour window).
@@ -573,7 +574,7 @@ async def add_transaction(session: AsyncSession, asset_id: int, payload: CryptoT
 
     quantity, _ = _compute_position(holding.transactions)
     if holding.last_price is not None:
-        await _upsert_valuation(session, asset_id, quantity * holding.last_price, date_.today())
+        await _upsert_valuation(session, asset_id, quantity * holding.last_price, business_today())
 
     await session.commit()
     return _to_read(holding, await FXConverter.load(session))
@@ -615,7 +616,7 @@ async def update_transaction(
 
     quantity, _ = _compute_position(holding.transactions)
     if holding.last_price is not None:
-        await _upsert_valuation(session, asset_id, quantity * holding.last_price, date_.today())
+        await _upsert_valuation(session, asset_id, quantity * holding.last_price, business_today())
 
     await session.commit()
     return _to_read(holding, await FXConverter.load(session))
@@ -647,7 +648,7 @@ async def delete_transaction(session: AsyncSession, transaction_id: int) -> None
     holding = await _get_holding_or_404(session, asset_id)
     quantity, _ = _compute_position([t for t in holding.transactions if t.id != transaction_id])
     if holding.last_price is not None:
-        await _upsert_valuation(session, asset_id, quantity * holding.last_price, date_.today())
+        await _upsert_valuation(session, asset_id, quantity * holding.last_price, business_today())
 
     await session.commit()
 
@@ -664,7 +665,7 @@ async def get_crypto_history(
     drops out here too, same as it already does for Net Worth). Further
     scoped to one portfolio's assets when `portfolio_id` is given, for the
     Crypto tab's portfolio filter."""
-    today = date_.today()
+    today = business_today()
 
     asset_stmt = (
         select(Asset.id)
@@ -755,7 +756,7 @@ async def get_90d_performance(session: AsyncSession, portfolio_id: int | None) -
 def _validate_trade_history(transactions):
     quantity = Decimal(0)
     for tx in sorted(transactions, key=lambda t: (t.date, t.id or 0)):
-        if tx.date > date_.today():
+        if tx.date > business_today():
             raise HTTPException(422, "Future crypto trades are not supported")
         if tx.quantity is None or tx.quantity <= 0:
             raise HTTPException(422, "Quantity must be positive")

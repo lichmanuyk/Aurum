@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input, Label } from "@/components/ui/Input";
 import { useAddCryptoTransaction, useUpdateCryptoTransaction } from "@/hooks/useCrypto";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { trimTrailingZeros } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ interface CryptoTransactionModalProps {
  * is recomputed from the last cached price. */
 export function CryptoTransactionModal({ open, onClose, holding, transaction = null }: CryptoTransactionModalProps) {
   const { t, language } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const addTransaction = useAddCryptoTransaction();
   const updateTransaction = useUpdateCryptoTransaction();
   const isEditing = transaction !== null;
@@ -35,7 +37,10 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
   const [quoteCurrency, setQuoteCurrency] = useState(getCurrency());
   const [quantity, setQuantity] = useState("");
   const [pricePerUnit, setPricePerUnit] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`.
+  const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -55,11 +60,24 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
       setType("buy");
       setQuantity("");
       setPricePerUnit("");
-      setDate(new Date().toISOString().slice(0, 10));
+      // "" (not a re-guessed date) so a modal reopened after being left
+      // closed across midnight re-fills from the *current* business date.
+      setDate("");
       setNote("");
     }
     setError(null);
   }, [open, holding, transaction]);
+
+  // Fills the "today" default in for a new (non-editing) trade the first
+  // time the business date is available — never overwrites a date the user
+  // has since edited (guarded by `date === ""`), and never runs at all
+  // while editing an existing transaction (its own recorded date is set
+  // above instead).
+  useEffect(() => {
+    if (open && !transaction && businessDate) {
+      setDate((current) => (current === "" ? businessDate : current));
+    }
+  }, [open, transaction, businessDate]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -148,6 +166,18 @@ export function CryptoTransactionModal({ open, onClose, holding, transaction = n
         <div>
           <Label htmlFor="tx-date">{t("crypto.form.dateLabel")}</Label>
           <Input id="tx-date" type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
+          {!transaction && date === "" && (
+            businessDateError ? (
+              <p className="mt-1 text-xs text-danger">
+                {t("businessDate.error")}{" "}
+                <button type="button" className="underline" onClick={retryBusinessDate}>
+                  {t("businessDate.retry")}
+                </button>
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+            )
+          )}
         </div>
 
         <div>
