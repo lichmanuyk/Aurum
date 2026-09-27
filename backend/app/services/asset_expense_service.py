@@ -5,6 +5,7 @@ creates, edits, or infers a link, and never touches the asset's own
 valuation/monthly_cash_flow (Asset.monthly_cash_flow stays a separate,
 self-reported estimate — see models/asset.py).
 """
+from datetime import date as date_
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -32,9 +33,28 @@ _EAGER = (
 )
 
 
+def _validate_period_params(year: int | None, month: int | None) -> None:
+    """`_resolve_bounds` (dashboard_service.py) silently *ignores* `month`
+    whenever `year` is omitted — reused here for the same three period
+    shapes (all time / a year / a specific month), but this route (unlike
+    the Dashboard's own, which only ever sends a resolved year/month pair —
+    see routes/dashboard.py) exposes both as independent, caller-supplied
+    query params, so that silent drop would let a caller believe they
+    filtered by month while actually getting the unfiltered all-time total.
+    A year entirely in the future would resolve to start > end (Jan 1 of
+    that year vs. today) — a silently empty report for a period that
+    looks like a request-shape error, not a real "no expenses yet" — so
+    it's rejected outright too, same as an incompatible combination."""
+    if month is not None and year is None:
+        raise HTTPException(422, "month requires year")
+    if year is not None and year > date_.today().year:
+        raise HTTPException(422, "year cannot be in the future")
+
+
 async def get_asset_expense_report(
     session: AsyncSession, asset_id: int, year: int | None, month: int | None, page: int, page_size: int
 ) -> AssetExpenseReport:
+    _validate_period_params(year, month)
     asset = await session.get(Asset, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")

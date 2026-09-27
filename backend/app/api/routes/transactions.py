@@ -364,6 +364,22 @@ async def update_transaction(
         raise HTTPException(status_code=400, detail=asset_link_violation)
     if "expense_asset_id" in updates:
         await _ensure_expense_asset_valid(session, updates["expense_asset_id"])
+    # A sparse patch that only changes `type` (splits omitted -> "leave
+    # them as they are") can't silently keep a *split line's own* link
+    # once the row is no longer an expense — expense_asset_link_violation
+    # above only ever checks the parent's own field, which is always None
+    # on a split transaction by construction, so it would never catch this
+    # on its own. The caller must resend `splits` (explicitly clearing or
+    # replacing each line's link) to change type away from expense; same
+    # "explicit action, not a side effect" rule as everywhere else in
+    # docs/tasks/property-expense-links.md.
+    if payload.splits is None and effective_type != TransactionType.EXPENSE and any(
+        split.expense_asset_id is not None for split in transaction.splits
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Resubmit splits (clearing or replacing each line's expense_asset_id) before changing type away from expense",
+        )
 
     fields = {column.name: getattr(transaction, column.name) for column in Transaction.__table__.columns}
     fields.update(updates)

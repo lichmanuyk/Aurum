@@ -6,10 +6,18 @@ test('buy and sell an asset from an account without counting trades as income or
   const snapshot = await (await request.get('/api/backup/export')).json();
   const empty = Object.fromEntries(Object.entries(snapshot).map(([key, value]) =>
     [key, Array.isArray(value) && !['accounts', 'categories'].includes(key) ? [] : value]));
-  const today = new Date().toLocaleDateString('en-CA');
   try {
     expect((await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: empty })).ok()).toBeTruthy();
     expect((await request.patch('/api/settings', { data: { currency: 'USD' } })).ok()).toBeTruthy();
+    // The server's own "today" (used everywhere balances/reports clamp to
+    // an end date), not the test runner's local clock: near midnight the
+    // two can legitimately disagree by a day (e.g. CI host in a timezone
+    // ahead of the container's UTC clock), which would silently date
+    // every fixture below "tomorrow" from the server's point of view and
+    // exclude them from every balance/report query — see
+    // docs/project-roadmap.md's limitations note on this exact case.
+    const dashboard = await (await request.get('/api/dashboard/summary?period=all')).json();
+    const today: string = dashboard.end_date;
     const account = await (await request.post('/api/accounts', { data: { name: 'Asset flow USD', type: 'checking', currency: 'USD' } })).json();
     const asset = await (await request.post('/api/assets', { data: { name: 'Asset flow test', asset_class: 'investments', currency: 'USD', value: '0', as_of_date: today } })).json();
     expect((await request.post('/api/transactions', { data: { account_id: account.id, type: 'adjustment', amount: '1000', adjustment_reason: 'opening_balance', description: 'Test opening', date: today } })).ok()).toBeTruthy();
@@ -26,6 +34,10 @@ test('buy and sell an asset from an account without counting trades as income or
     await dialog.locator('#movement-account').selectOption(String(account.id));
     await dialog.locator('#movement-gross').fill('300');
     await dialog.locator('#movement-value').fill('300');
+    // The form defaults this to the *browser's* local today() (see
+    // AssetMovementModal.tsx) — pinned to the server's own today so this
+    // trade is never dated "tomorrow" from the server's point of view.
+    await dialog.locator('#movement-date').fill(today);
     await dialog.getByRole('button', { name: /Записать операцию|Record trade/ }).click();
     await expect(dialog.locator('li').filter({ hasText: 'Asset flow USD' })).toContainText(/300/);
     expect(await balance()).toBe(700);
@@ -47,10 +59,14 @@ test('buy and sell an asset from an account without counting trades as income or
     expect(Number((await flow()).total_expense)).toBe(0);
     await dialog.locator('#movement-gross').fill('300');
     await dialog.locator('#movement-value').fill('300');
+    // The form reset to a fresh browser-local today() after the previous
+    // submit — pin it again, same reason as the first trade above.
+    await dialog.locator('#movement-date').fill(today);
     await dialog.getByRole('button', { name: /Записать операцию|Record trade/ }).click();
     await expect.poll(balance).toBe(700);
     await dialog.locator('#movement-gross').fill('200');
     await dialog.locator('#movement-value').fill('500');
+    await dialog.locator('#movement-date').fill(today);
     await dialog.getByRole('button', { name: /Записать операцию|Record trade/ }).click();
     await expect(dialog.locator('li')).toHaveCount(2);
     expect(await balance()).toBe(500);

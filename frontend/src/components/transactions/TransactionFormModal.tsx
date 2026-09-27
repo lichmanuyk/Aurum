@@ -255,8 +255,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
         note: row.note || null,
         // Each line carries its own optional asset link — never the
         // parent's (see expense_asset_id below and
-        // docs/tasks/property-expense-links.md).
-        expense_asset_id: row.expense_asset_id ? Number(row.expense_asset_id) : null,
+        // docs/tasks/property-expense-links.md). Expense-only: the
+        // picker itself is already hidden for income (see the split-row
+        // render above), this is the belt-and-suspenders guard so a
+        // lingering value from before a type switch can never be sent.
+        expense_asset_id: form.type === "expense" && row.expense_asset_id ? Number(row.expense_asset_id) : null,
       }));
     } else if (transaction && transaction.splits.length > 0) {
       splits = [];
@@ -323,7 +326,11 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               // A link only ever makes sense for an expense (see
               // expense_asset_link_violation) — switching away clears it
               // in the form too, so the next save can't submit a stale
-              // combination the backend would reject anyway.
+              // combination the backend would reject anyway. Income can
+              // still be split (unlike transfer/adjustment), so its split
+              // *rows* need their own links cleared too, not just the
+              // parent's — otherwise an income transaction's splits would
+              // silently keep carrying an expense-only field.
               setForm((prev) => ({
                 ...prev,
                 type: nextType,
@@ -331,6 +338,9 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                 expense_asset_id: nextType === "expense" ? prev.expense_asset_id : "",
               }));
               if (nextType === "transfer" || nextType === "adjustment") setSplitMode(false);
+              if (nextType !== "expense") {
+                setSplitRows((prev) => prev.map((row) => ({ ...row, expense_asset_id: "" })));
+              }
             }}
           >
             <option value="expense">{t("transactions.form.typeExpense")}</option>
@@ -520,12 +530,21 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
                       value={row.note}
                       onChange={(event) => updateSplitRow(row.key, { note: event.target.value })}
                     />
-                    <ExpenseAssetSelect
-                      className="text-xs"
-                      aria-label={t("transactions.form.expenseAssetLabel")}
-                      value={row.expense_asset_id}
-                      onChange={(value) => updateSplitRow(row.key, { expense_asset_id: value })}
-                    />
+                    {/* A split line's own link is expense-only (see
+                        expense_asset_link_violation, schemas/transaction.py)
+                        — income can otherwise be split too (unlike
+                        transfer/adjustment), so this picker must not be
+                        offered there; the type-switch handler above also
+                        clears any link already entered before the type
+                        changed. */}
+                    {form.type === "expense" && (
+                      <ExpenseAssetSelect
+                        className="text-xs"
+                        aria-label={t("transactions.form.expenseAssetLabel")}
+                        value={row.expense_asset_id}
+                        onChange={(value) => updateSplitRow(row.key, { expense_asset_id: value })}
+                      />
+                    )}
                   </div>
                 ))}
 

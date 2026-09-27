@@ -248,3 +248,152 @@ test('the year picker never leaves a stale total under a new period, and the mod
     expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
   }
 });
+
+test('Escape on the payment modal closes only the payment, not the report behind it, and switching assets never offers a stale payment', async ({ page, request }) => {
+  const snapshot = await resetToEmpty(request);
+  try {
+    const account = await (await request.post('/api/accounts', { data: { name: 'PEL escape account', currency: 'USD' } })).json();
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const assetA = await createAsset(request, 'PEL escape house');
+    const assetB = await createAsset(request, 'PEL escape car', { asset_class: 'vehicles' });
+    await request.post('/api/recurring', { data: {
+      account_id: account.id, type: 'expense', amount: '15.00', description: 'PEL escape bill A',
+      frequency: 'monthly', anchor_date: yesterday, expense_asset_id: assetA.id,
+    } });
+
+    await page.goto('/net-worth');
+    const rowA = page.locator('li').filter({ hasText: 'PEL escape house' });
+    await rowA.getByRole('button', { name: /Расходы|Expenses/ }).click();
+    const modalA = page.getByRole('dialog').filter({ hasText: 'PEL escape house' });
+    await expect(modalA).toBeVisible();
+    // A specific year (not "all time") so the period is actually
+    // observable as "still the same" after the payment modal closes.
+    await modalA.getByRole('button', { name: /^Год$|^Year$/ }).click();
+    await modalA.getByRole('button', { name: /Провести|Post/ }).click();
+    const paymentModal = page.getByRole('dialog').filter({ hasText: /Оплата: PEL escape bill A|Payment: PEL escape bill A/ });
+    await expect(paymentModal).toBeVisible();
+    // Only one Escape-listening dialog may be active at a time (see
+    // components/networth/AssetExpensesModal.tsx) — pressing it once must
+    // close the payment only, not cascade into the report behind it.
+    await page.keyboard.press('Escape');
+    await expect(paymentModal).toBeHidden();
+    await expect(modalA).toBeVisible();
+    // The period picked before opening the payment survived — the
+    // YearSelector (only rendered once "Год"/"Year" mode is active, see
+    // AssetExpensesModal.tsx) is still showing, not reset back to
+    // "Всё время"/"All time", which would hide it again.
+    await expect(modalA.getByRole('button', { name: String(new Date().getFullYear()) })).toBeVisible();
+    await expect(modalA).toContainText('PEL escape bill A');
+    expect((await (await requestWithRateLimit(request, '/api/transactions')).json()).total).toBe(0);
+
+    await modalA.getByRole('button', { name: /Закрыть|Close/ }).first().click();
+    await expect(modalA).toBeHidden();
+
+    // Reopening for a *different* asset must never show asset A's template
+    // payment modal, even transiently.
+    const rowB = page.locator('li').filter({ hasText: 'PEL escape car' });
+    await rowB.getByRole('button', { name: /Расходы|Expenses/ }).click();
+    const modalB = page.getByRole('dialog').filter({ hasText: 'PEL escape car' });
+    await expect(modalB).toBeVisible();
+    await expect(page.getByRole('dialog').filter({ hasText: /PEL escape bill A/ })).toHaveCount(0);
+    await expect(modalB).toContainText(/Свяжите этот актив|Link this asset/);
+  } finally {
+    const restore = await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});
+
+test('Pay is disabled once a template is no longer due, right after a successful payment', async ({ page, request }) => {
+  const snapshot = await resetToEmpty(request);
+  try {
+    const account = await (await request.post('/api/accounts', { data: { name: 'PEL due account', currency: 'USD' } })).json();
+    const asset = await createAsset(request, 'PEL due asset');
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await request.post('/api/recurring', { data: {
+      account_id: account.id, type: 'expense', amount: '12.00', description: 'PEL due bill',
+      frequency: 'monthly', anchor_date: yesterday, expense_asset_id: asset.id,
+    } });
+
+    await page.goto('/net-worth');
+    const row = page.locator('li').filter({ hasText: 'PEL due asset' });
+    await row.getByRole('button', { name: /Расходы|Expenses/ }).click();
+    const modal = page.getByRole('dialog').filter({ hasText: 'PEL due asset' });
+    const payButton = modal.getByRole('button', { name: /Провести платёж|Post now/ });
+    await expect(payButton).toBeEnabled();
+
+    await payButton.click();
+    const paymentModal = page.getByRole('dialog').filter({ hasText: /Оплата: PEL due bill|Payment: PEL due bill/ });
+    await expect(paymentModal).toBeVisible();
+    await paymentModal.getByRole('button', { name: /Подтвердить оплату|Confirm payment/ }).click();
+    await expect(paymentModal).toBeHidden();
+
+    // Same availability rule as the Recurring page's own list — a
+    // just-posted monthly template is no longer due until next month.
+    await expect(payButton).toBeDisabled();
+    await expect(modal).not.toContainText(/Пора оплатить сегодня|Due today/);
+  } finally {
+    const restore = await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});
+
+test('switching a linked split expense to income hides the property picker and clears each line\'s link', async ({ page, request }) => {
+  const snapshot = await resetToEmpty(request);
+  try {
+    const account = await (await request.post('/api/accounts', { data: { name: 'PEL income switch account', currency: 'USD' } })).json();
+    const asset = await createAsset(request, 'PEL income switch asset');
+    const categories = await (await request.get('/api/categories')).json();
+    const groceries = categories.find((c: { name: string }) => c.name === 'Groceries');
+    const sweets = await (await request.post('/api/categories', {
+      data: { name: 'PEL Income Switch Sweets', kind: 'expense', color: '#7a869a', parent_id: groceries.id },
+    })).json();
+    const salary = categories.find((c: { name: string }) => c.name === 'Salary');
+    const bonus = await (await request.post('/api/categories', {
+      data: { name: 'PEL Income Switch Bonus', kind: 'income', color: '#7a869a', parent_id: salary.id },
+    })).json();
+    const created = await (await request.post('/api/transactions', { data: {
+      account_id: account.id, type: 'expense', amount: '100.00', description: 'PEL income switch receipt',
+      date: '2026-02-01',
+      splits: [
+        { category_id: groceries.id, amount: '60.00', expense_asset_id: asset.id },
+        { category_id: sweets.id, amount: '40.00' },
+      ],
+    } })).json();
+
+    await page.goto('/transactions');
+    await page.getByPlaceholder(/Поиск по описанию|Search by description/).fill('PEL income switch receipt');
+    const row = page.locator('li').filter({ hasText: 'PEL income switch receipt' }).first();
+    await row.getByRole('button', { name: /Изменить|Edit/ }).click();
+    const form = page.getByRole('dialog');
+    await expect(form).toBeVisible();
+    // Switching to income while still split must hide the property picker
+    // on each split row (see TransactionFormModal.tsx's type-switch
+    // handler) — a picker offered for income would only ever be rejected
+    // on save.
+    await form.locator('#type').selectOption('income');
+    await expect(form.locator('.space-y-2 select[aria-label="Имущество (необязательно)"], .space-y-2 select[aria-label="Property (optional)"]')).toHaveCount(0);
+
+    // Picking the shared base category resets the (now type-mismatched)
+    // expense split rows to two fresh ones, same as any other base-category
+    // change (see handleBaseCategoryChange).
+    await form.locator('#category').selectOption(String(salary.id));
+    const rows = form.locator('.space-y-2 > div.rounded-lg');
+    await rows.nth(0).locator('select').first().selectOption(String(salary.id));
+    await rows.nth(0).locator('input[type="number"]').fill('60');
+    await rows.nth(1).locator('select').first().selectOption(String(bonus.id));
+    await rows.nth(1).locator('input[type="number"]').fill('40');
+    await form.getByRole('button', { name: /Сохранить|Save/ }).click();
+    await expect(form).toBeHidden();
+
+    const report = await (await requestWithRateLimit(request, `/api/assets/${asset.id}/expenses`)).json();
+    expect(Number(report.total_amount)).toBe(0);
+    expect(report.items).toHaveLength(0);
+    const refetched = (await (await requestWithRateLimit(request, '/api/transactions')).json()).items
+      .find((t: { id: number }) => t.id === created.id);
+    expect(refetched.type).toBe('income');
+    expect(refetched.splits.every((s: { expense_asset_id: number | null }) => s.expense_asset_id === null)).toBe(true);
+  } finally {
+    const restore = await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});

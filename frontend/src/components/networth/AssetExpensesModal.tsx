@@ -45,11 +45,18 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
   // Every fresh open starts on "all time" for whichever asset was picked —
   // switching assets (or reopening) never keeps a stale period/page from a
   // previous look, matching Dashboard's own "always starts here" rule.
+  // payingTemplate is reset here too: this component instance persists
+  // across a prop change (NetWorthPage doesn't remount it per asset), so
+  // without this a template payment left open for one asset could still be
+  // sitting in state the next time this dialog opens for a *different*
+  // asset, silently offering a stale payment that belongs to the wrong
+  // property.
   useEffect(() => {
     if (!open) return;
     setYear(null);
     setMonth(null);
     setPage(1);
+    setPayingTemplate(null);
   }, [open, asset?.id]);
 
   const assetId = open ? asset?.id ?? null : null;
@@ -88,15 +95,23 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
 
   const totalPages = report ? Math.max(1, Math.ceil(report.total / PAGE_SIZE)) : 1;
 
+  // RecurringPaymentModal is rendered as a sibling below, not nested
+  // inside this Dialog's own children — nesting would make the outer
+  // dialog's accessible text/DOM tree include the inner one's (Dialog
+  // isn't portal-based), and — more importantly — both Dialogs attach
+  // their own `document`-level Escape listener (see components/ui/Dialog.tsx),
+  // so with two simultaneously "open" Dialogs, one Escape press would
+  // fire *both* onClose handlers and close the report behind the payment
+  // too. Suspending this Dialog's own `open` while a payment is in
+  // progress means only the payment's listener is ever active at once —
+  // Escape/Cancel on the payment closes only the payment, and this
+  // report reappears exactly as it was (period/page untouched, since this
+  // component itself never unmounts, only its own <Dialog> toggles).
+  const reportDialogOpen = open && payingTemplate === null;
+
   return (
-    // RecurringPaymentModal is a sibling, not a child, of this Dialog —
-    // both render their own independent role="dialog" overlay, and
-    // nesting one inside the other's children would make the outer
-    // dialog's accessible text/DOM tree include the inner one's (Dialog
-    // isn't portal-based), which is confusing for both screen readers and
-    // any test locating "the dialog" by its title text.
     <Fragment>
-      <Dialog open={open} onClose={onClose} title={t("netWorth.expenses.title", { name: asset.name })} size="lg">
+      <Dialog open={reportDialogOpen} onClose={onClose} title={t("netWorth.expenses.title", { name: asset.name })} size="lg">
         <div className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <PillSelector options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
@@ -203,10 +218,36 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
                           {formatMoney(template.amount, template.currency)} ·{" "}
                           {t(`recurring.frequency.${template.frequency}` as TranslationKey)}
                         </span>
+                        {/* Same due/overdue phrasing as RecurringList's own
+                            row (components/recurring/RecurringList.tsx) —
+                            a freshly-paid template's next_due_date moves
+                            forward on its own refetch, so this never keeps
+                            showing "due today" right after a successful
+                            payment. */}
+                        <span
+                          className="block truncate text-xs"
+                          style={{ color: template.is_due ? "var(--danger)" : "var(--text-muted)" }}
+                        >
+                          {template.is_due
+                            ? template.days_until_due < 0
+                              ? t("recurring.overdueDays", { days: Math.abs(template.days_until_due) })
+                              : t("recurring.dueToday")
+                            : t("recurring.dueInDays", {
+                                days: template.days_until_due,
+                                date: formatTransactionDate(template.next_due_date, true),
+                              })}
+                        </span>
                       </span>
                       <Button
                         variant="secondary"
-                        disabled={!template.is_active}
+                        // Same availability rule as RecurringList's own
+                        // Post button: is_due already folds in is_active
+                        // (see recurring_service.py's _to_read) — an
+                        // inactive OR not-yet-due template offers no Pay
+                        // action, so a stale click can't hit
+                        // TEMPLATE_INACTIVE/TEMPLATE_NOT_DUE right after a
+                        // just-posted payment already advanced the schedule.
+                        disabled={!template.is_due}
                         onClick={() => setPayingTemplate(template)}
                       >
                         {t("recurring.postLabel")}
@@ -235,7 +276,11 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
       </Dialog>
 
       <RecurringPaymentModal
-        open={payingTemplate !== null}
+        // Gated by this dialog's own open+asset too — never left visible
+        // on its own if the parent itself is supposed to be closed (e.g.
+        // NetWorthPage closing this whole dialog while a payment happened
+        // to be open).
+        open={open && asset !== null && payingTemplate !== null}
         onClose={() => setPayingTemplate(null)}
         recurring={payingTemplate}
       />
