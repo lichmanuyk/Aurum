@@ -7,6 +7,8 @@ import asyncio
 from decimal import Decimal
 
 from app.core.clock import business_today
+from app.schemas.debt import DebtRepaymentCreate
+from app.services import debt_service
 
 
 async def _account(client, currency="USD", **overrides):
@@ -354,6 +356,104 @@ async def test_concurrent_repayments_cannot_jointly_overpay(client, account_id):
     final = (await client.get(f"/debts/{debt['id']}")).json()
     assert Decimal(final['outstanding_amount']) == 40
     assert Decimal(final['outstanding_amount']) >= 0
+
+
+async def test_concurrent_repayment_blocks_stale_financial_edit(client, account_id, test_sessionmaker):
+    """update_debt must take the same row lock every other financial write
+    on a Debt already takes (debt_service._lock_debt_and_repayments) —
+    otherwise a currency/principal_amount edit that read "zero repayments"
+    before a concurrent first repayment committed could still land
+    afterwards, silently breaking "immutable once used" (docs/tasks/
+    debt-tracking.md invariant 6) with a cross-currency `_outstanding`
+    subtraction as the visible symptom.
+
+    Exercised with a genuine second Postgres connection/session (via
+    test_sessionmaker), not just two `client` calls raced with
+    asyncio.gather like test_concurrent_repayments_cannot_jointly_overpay
+    above: this lets the test hold the row lock open on purpose, prove the
+    edit is actually still blocked on it (not merely "usually loses the
+    race"), and only then let the repayment win — a real, controlled
+    interleaving, not a mocked lock."""
+    today = str(business_today())
+    debt = (await client.post('/debts', json=dict(
+        direction='owed_by_me', counterparty='Synthetic bank', currency='USD', principal_amount='100',
+        start_date=today, funding='opening_balance', idempotency_key=_key(),
+    ))).json()
+    debt_id = debt['id']
+
+    async with test_sessionmaker() as held_session:
+        # Same first step create_repayment itself takes — acquire the row
+        # lock, but (unlike create_repayment) don't commit yet, simulating
+        # a repayment request that is still mid-flight.
+        await debt_service._lock_debt_and_repayments(held_session, debt_id)
+
+        edit_task = asyncio.create_task(
+            client.patch(f"/debts/{debt_id}", json={'currency': 'EUR', 'principal_amount': '999'})
+        )
+        try:
+            await asyncio.sleep(0.3)
+            assert not edit_task.done(), "the edit must stay blocked behind the held row lock, not proceed on a stale read"
+
+            # Let the repayment actually finish — same call
+            # POST /debts/{id}/repayments makes, over the connection
+            # already holding the lock — which commits and releases it.
+            await debt_service.create_repayment(
+                held_session, debt_id,
+                DebtRepaymentCreate(
+                    account_id=account_id, date=today, amount_debt_currency=Decimal('30'), idempotency_key=_key(),
+                ),
+            )
+
+            edit_response = await asyncio.wait_for(edit_task, timeout=5)
+        finally:
+            if not edit_task.done():
+                edit_task.cancel()
+
+    assert edit_response.status_code == 409, edit_response.text
+
+    final = (await client.get(f"/debts/{debt_id}")).json()
+    # The edit never landed: currency/principal are exactly what they were
+    # before the race, and the repayment that won is still correctly
+    # denominated in that same, unchanged currency — never a silent
+    # cross-currency subtraction between an old repayment and a new
+    # principal/currency.
+    assert final['currency'] == 'USD'
+    assert Decimal(final['principal_amount']) == 100
+    assert final['repayment_count'] == 1
+    assert Decimal(final['outstanding_amount']) == 70
+
+
+async def test_concurrent_delete_makes_a_stale_edit_404_not_500(client, account_id, test_sessionmaker):
+    """Same lock, opposite winner: once a concurrent delete_debt commits
+    first, update_debt's own later UPDATE must come back as a clean 404
+    (the row is simply gone) instead of an unhandled ORM error from
+    refreshing a row that no longer exists."""
+    today = str(business_today())
+    debt = (await client.post('/debts', json=dict(
+        direction='owed_by_me', counterparty='Synthetic bank', currency='USD', principal_amount='100',
+        start_date=today, funding='opening_balance', idempotency_key=_key(),
+    ))).json()
+    debt_id = debt['id']
+
+    async with test_sessionmaker() as held_session:
+        await debt_service._lock_debt_and_repayments(held_session, debt_id)
+
+        edit_task = asyncio.create_task(
+            client.patch(f"/debts/{debt_id}", json={'principal_amount': '50'})
+        )
+        try:
+            await asyncio.sleep(0.3)
+            assert not edit_task.done(), "the edit must stay blocked behind the held row lock"
+
+            await debt_service.delete_debt(held_session, debt_id)
+
+            edit_response = await asyncio.wait_for(edit_task, timeout=5)
+        finally:
+            if not edit_task.done():
+                edit_task.cancel()
+
+    assert edit_response.status_code == 404, edit_response.text
+    assert (await client.get(f"/debts/{debt_id}")).status_code == 404
 
 
 async def test_multicurrency_actual_amounts_are_explicit_never_fx_inferred(client):

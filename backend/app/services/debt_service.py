@@ -6,10 +6,14 @@ reversal) is one atomic commit that inserts/updates exactly one Transaction
 row (type debt_in/debt_out) alongside the Debt/DebtRepayment bookkeeping —
 same "one atomic operation, no second Transaction, no partial state on
 failure" contract as asset_movement_service. Concurrency: creating or
-editing a repayment always locks the parent Debt row (`SELECT ... FOR
-UPDATE`) before recomputing outstanding, so two requests against the same
-debt can never jointly push it negative — the second waits for the first's
-commit/rollback and then re-validates against the now-current outstanding.
+editing a repayment, deleting a debt, and editing a debt's own financial
+fields all lock the parent Debt row (`SELECT ... FOR UPDATE`) before
+recomputing outstanding/repayment-count, so two requests against the same
+debt can never jointly push it negative, and a financial-field edit can
+never land after a concurrent first repayment/reversal has already fixed
+that debt's currency/amount in place — the second request waits for the
+first's commit/rollback and then re-validates against the now-current,
+race-free state.
 """
 from collections import defaultdict
 from datetime import date as date_
@@ -191,17 +195,32 @@ async def create_debt(session: AsyncSession, payload: DebtCreate) -> DebtRead:
     return await _read_debt(session, debt)
 
 
-def _financial_fields_locked(debt: Debt) -> bool:
+def _financial_fields_locked(debt: Debt, repayments: list[DebtRepayment]) -> bool:
     """True once a debt has been "used" — a new loan (cash already moved)
     or any repayment recorded — see models/debt.py's own docstring and
-    update_debt/delete_debt below, the two places this actually gates."""
-    return debt.issuance_transaction_id is not None or len(debt.repayments) > 0
+    update_debt/delete_debt below, the two places this actually gates.
+    Takes the repayment list explicitly (rather than reading
+    `debt.repayments`) so callers are forced to supply a snapshot taken
+    under the same row lock the decision is made from — see update_debt."""
+    return debt.issuance_transaction_id is not None or len(repayments) > 0
 
 
 async def update_debt(session: AsyncSession, debt_id: int, payload: DebtUpdate) -> DebtRead:
-    debt = await get_debt_or_404(session, debt_id)
+    # Locked for the same reason create_repayment/delete_debt already are:
+    # without this, a concurrent first repayment (or reversal, or delete)
+    # could commit between an unlocked read here and this function's own
+    # UPDATE, so a currency/principal_amount edit that looked safe (zero
+    # repayments at read time) could land *after* a repayment now exists in
+    # the old currency/amount — silently breaking "immutable once used"
+    # (docs/tasks/debt-tracking.md invariant 6) with a cross-currency
+    # `_outstanding` subtraction as the visible symptom. Locking here also
+    # means a concurrent delete_debt that wins the race simply makes this
+    # function see "no such row" (a clean 404) instead of updating 0 rows
+    # and then failing the post-commit `session.refresh` with an
+    # unhandled ORM error.
+    debt, repayments = await _lock_debt_and_repayments(session, debt_id)
     updates = payload.model_dump(exclude_unset=True)
-    if _FINANCIAL_FIELDS & updates.keys() and _financial_fields_locked(debt):
+    if _FINANCIAL_FIELDS & updates.keys() and _financial_fields_locked(debt, repayments):
         if debt.issuance_transaction_id is not None:
             raise HTTPException(409, "A new loan's terms are fixed at creation; delete and recreate it instead")
         raise HTTPException(409, "Delete every repayment first, or delete and recreate this debt")
@@ -280,9 +299,11 @@ async def list_repayments(session: AsyncSession, debt_id: int) -> list[DebtRepay
 
 async def _lock_debt_and_repayments(session: AsyncSession, debt_id: int) -> tuple[Debt, list[DebtRepayment]]:
     """Locks the Debt row for the duration of this transaction — every
-    concurrent repayment create/edit against the same debt serializes here,
-    so two requests can never both read the same "outstanding" figure and
-    jointly overpay (see this module's own docstring)."""
+    concurrent repayment create/edit/delete and debt update/delete against
+    the same debt serializes here, so two requests can never both read the
+    same "outstanding"/"repayment_count" figure and jointly overpay or
+    defeat the "immutable once used" invariant (see this module's own
+    docstring)."""
     debt = await session.scalar(select(Debt).where(Debt.id == debt_id).with_for_update())
     if debt is None:
         raise HTTPException(404, "Debt not found")
