@@ -397,3 +397,34 @@ test('switching a linked split expense to income hides the property picker and c
     expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
   }
 });
+
+test('a crypto-class asset never offers "Expenses" — the row hides the action and the report endpoint refuses it', async ({ page, request }) => {
+  const snapshot = await resetToEmpty(request);
+  try {
+    const cryptoAsset = await createAsset(request, 'PEL crypto coin', { asset_class: 'crypto' });
+
+    await page.goto('/net-worth');
+    // Scoped to the AssetsTable's own list specifically — the allocation
+    // breakdown card above it also renders an "li" mentioning this same
+    // asset name (its 100%-of-crypto-class legend row), which a plain
+    // `page.locator('li')` would otherwise ambiguously match too.
+    const assetsList = page.locator('ul.divide-y.divide-gridline').filter({
+      has: page.locator('button[aria-label*="Покупка и продажа"], button[aria-label*="Buy and sell"]'),
+    });
+    const row = assetsList.locator('li').filter({ hasText: 'PEL crypto coin' });
+    await expect(row).toBeVisible();
+    // A crypto-class Asset row is always a CryptoHolding's own shell —
+    // never a valid expense-link target (see routes/assets.py's
+    // get_asset_expenses and docs/tasks/property-expense-links.md) — the
+    // row still has its other actions (edit/delete/buy-sell), just not
+    // this one.
+    await expect(row.getByRole('button', { name: /Расходы|Expenses/ })).toHaveCount(0);
+    await expect(row.getByRole('button', { name: /Покупка и продажа|Buy and sell/ })).toBeVisible();
+
+    const direct = await request.get(`/api/assets/${cryptoAsset.id}/expenses`);
+    expect(direct.status()).toBe(400);
+  } finally {
+    const restore = await requestWithRateLimit(request, '/api/backup/import', { method: 'POST', data: snapshot });
+    expect(restore.ok(), `Restore failed: ${restore.status()} ${await restore.text()}`).toBeTruthy();
+  }
+});

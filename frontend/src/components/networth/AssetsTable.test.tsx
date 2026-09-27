@@ -123,6 +123,23 @@ it("keeps an asset with a missing FX rate visible, sorted after every valued ass
   expect(container.textContent).not.toContain("нет оценки");
 });
 
+it("hides the Expenses action for a crypto-class asset, but keeps it for every other class", () => {
+  // A crypto-class Asset row is always a CryptoHolding's own shell — it
+  // can never carry an expense link (see routes/assets.py's
+  // get_asset_expenses and docs/tasks/property-expense-links.md), so
+  // offering the action here would just be a dead end after the click.
+  renderTable([
+    makeAsset({ id: 1, name: "Crypto asset", asset_class: "crypto" }),
+    makeAsset({ id: 2, name: "Real estate asset", asset_class: "real_estate" }),
+  ]);
+
+  const rows = Array.from(container.querySelectorAll("li"));
+  const cryptoRow = rows.find((li) => li.textContent?.includes("Crypto asset"));
+  const realEstateRow = rows.find((li) => li.textContent?.includes("Real estate asset"));
+  expect(cryptoRow?.querySelector('button[aria-label$="Расходы"]')).toBeNull();
+  expect(realEstateRow?.querySelector('button[aria-label$="Расходы"]')).not.toBeNull();
+});
+
 it("shows the capital-currency equivalent alongside the native amount when they differ, and omits it when they match", () => {
   renderTable([
     makeAsset({ id: 1, name: "Converted", currency: "EUR", current_value: "10", capital_value: "11", capital_currency: "USD" }),

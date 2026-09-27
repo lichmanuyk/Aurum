@@ -123,15 +123,26 @@ export function AssetsTable({ items, onEdit, onDelete, onMovement, onExpenses }:
               )}
             </span>
             <span className="flex shrink-0 gap-1">
-              <button
-                type="button"
-                aria-label={`${asset.name}: ${t("netWorth.assetsTable.expensesLabel")}`}
-                title={t("netWorth.assetsTable.expensesLabel")}
-                onClick={() => onExpenses(asset)}
-                className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"
-              >
-                <Receipt size={15} />
-              </button>
+              {/* "Expenses" only ever makes sense for a manually-tracked,
+                  non-crypto asset — a crypto-class row is always a
+                  CryptoHolding's own shell with its own buy/sell log, never
+                  a valid expense-link target (the backend rejects a link
+                  to one outright, and the report endpoint itself now
+                  refuses to run for one — see routes/assets.py's
+                  get_asset_expenses and docs/tasks/property-expense-links.md).
+                  Hiding the action here keeps the row from offering a
+                  guaranteed dead end. */}
+              {asset.asset_class !== "crypto" && (
+                <button
+                  type="button"
+                  aria-label={`${asset.name}: ${t("netWorth.assetsTable.expensesLabel")}`}
+                  title={t("netWorth.assetsTable.expensesLabel")}
+                  onClick={() => onExpenses(asset)}
+                  className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"
+                >
+                  <Receipt size={15} />
+                </button>
+              )}
               <button type="button" aria-label={`${asset.name}: ${language === "ru" ? "Покупка и продажа" : "Buy and sell"}`} title={language === "ru" ? "Покупка и продажа" : "Buy and sell"} onClick={() => onMovement(asset)} className="rounded-md p-1.5 text-text-muted hover:bg-surface-2 hover:text-text-primary"><ArrowLeftRight size={15} /></button>
               <button
                 type="button"

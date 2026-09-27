@@ -112,6 +112,18 @@ async def test_current_year_future_month_still_resolves_to_a_legitimate_empty_pe
     assert money(response.json()["total_amount"]) == 0
 
 
+async def test_expenses_report_rejects_a_crypto_class_asset_outright(client, account_id):
+    # A crypto-class Asset row is always a CryptoHolding's own shell (see
+    # models/crypto.py) — it can never carry an expense_asset_id link, so
+    # this report is a guaranteed dead end for one. Rejected explicitly
+    # rather than silently returning a permanently-empty shape (see
+    # routes/assets.py's get_asset_expenses and AssetsTable.tsx, which now
+    # hides the "Expenses" action for a crypto row for the same reason).
+    crypto_asset = await asset(client, asset_class="crypto", name="Synthetic report-check coin")
+    response = await client.get(f"/assets/{crypto_asset['id']}/expenses")
+    assert response.status_code == 400, response.text
+
+
 # --- 8: sparse PATCH can't silently retain a split's own asset link -------
 
 async def test_sparse_type_change_rejected_while_a_split_line_keeps_its_link(client, account_id, categories):

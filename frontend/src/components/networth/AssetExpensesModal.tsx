@@ -45,19 +45,46 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
   // Every fresh open starts on "all time" for whichever asset was picked —
   // switching assets (or reopening) never keeps a stale period/page from a
   // previous look, matching Dashboard's own "always starts here" rule.
-  // payingTemplate is reset here too: this component instance persists
-  // across a prop change (NetWorthPage doesn't remount it per asset), so
-  // without this a template payment left open for one asset could still be
-  // sitting in state the next time this dialog opens for a *different*
-  // asset, silently offering a stale payment that belongs to the wrong
-  // property.
   useEffect(() => {
     if (!open) return;
     setYear(null);
     setMonth(null);
     setPage(1);
-    setPayingTemplate(null);
   }, [open, asset?.id]);
+
+  // Clears a pending payment the moment this dialog itself closes — via
+  // *any* path `open` can turn false, not only the click-driven ones
+  // handleClose (below) already covers immediately. Today's own wiring
+  // (NetWorthPage) only ever flips `open` through handleClose itself, so
+  // this is defense-in-depth against a future caller that closes this
+  // dialog some other way: without it, reopening the *same* asset later
+  // would find the untouched old payingTemplate still matching
+  // validPayment's own asset check and reopen a payment the user never
+  // asked to resume.
+  useEffect(() => {
+    if (!open) setPayingTemplate(null);
+  }, [open]);
+
+  // This component instance persists across an `asset` prop change
+  // (NetWorthPage doesn't remount it per asset) — payingTemplate itself
+  // can still be holding the *previous* asset's template object for one
+  // render before any effect above even runs, since effects only fire
+  // after paint. Recomputing this on every render (not in an effect) is
+  // what keeps the very first paint for a new asset from ever showing a
+  // stale payment that belongs to a different property: a template only
+  // ever counts as "the" pending payment while it actually still belongs
+  // to the asset currently open.
+  const validPayment =
+    open && asset && payingTemplate && payingTemplate.expense_asset_id === asset.id ? payingTemplate : null;
+
+  // Cleared eagerly on close too (not only lazily on the next open above)
+  // — closing this dialog (via its own Close button, Escape, or the
+  // parent switching `open` to false) must never leave a stale template
+  // reference sitting in state a moment longer than it has to.
+  function handleClose() {
+    setPayingTemplate(null);
+    onClose();
+  }
 
   const assetId = open ? asset?.id ?? null : null;
   const { data: report, isLoading, isError, error, refetch } = useAssetExpenses(assetId, {
@@ -102,16 +129,19 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
   // their own `document`-level Escape listener (see components/ui/Dialog.tsx),
   // so with two simultaneously "open" Dialogs, one Escape press would
   // fire *both* onClose handlers and close the report behind the payment
-  // too. Suspending this Dialog's own `open` while a payment is in
+  // too. Suspending this Dialog's own `open` while a *valid* payment is in
   // progress means only the payment's listener is ever active at once —
   // Escape/Cancel on the payment closes only the payment, and this
   // report reappears exactly as it was (period/page untouched, since this
-  // component itself never unmounts, only its own <Dialog> toggles).
-  const reportDialogOpen = open && payingTemplate === null;
+  // component itself never unmounts, only its own <Dialog> toggles). Keyed
+  // off validPayment (not the raw payingTemplate state), so a stale
+  // template from a just-switched-away-from asset can never suspend this
+  // dialog either.
+  const reportDialogOpen = open && validPayment === null;
 
   return (
     <Fragment>
-      <Dialog open={reportDialogOpen} onClose={onClose} title={t("netWorth.expenses.title", { name: asset.name })} size="lg">
+      <Dialog open={reportDialogOpen} onClose={handleClose} title={t("netWorth.expenses.title", { name: asset.name })} size="lg">
         <div className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <PillSelector options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
@@ -268,7 +298,7 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
         )}
 
         <div className="flex justify-end pt-2">
-          <Button type="button" variant="ghost" onClick={onClose}>
+          <Button type="button" variant="ghost" onClick={handleClose}>
             {t("common.close")}
           </Button>
         </div>
@@ -276,13 +306,15 @@ export function AssetExpensesModal({ open, onClose, asset }: AssetExpensesModalP
       </Dialog>
 
       <RecurringPaymentModal
-        // Gated by this dialog's own open+asset too — never left visible
-        // on its own if the parent itself is supposed to be closed (e.g.
-        // NetWorthPage closing this whole dialog while a payment happened
-        // to be open).
-        open={open && asset !== null && payingTemplate !== null}
+        // Driven by validPayment, not the raw payingTemplate state — open
+        // only for a template that actually still belongs to the
+        // currently-open asset, so switching assets (or the parent itself
+        // closing) can never leave this visibly open for a stale one, not
+        // even for a single frame before an effect would otherwise catch
+        // up.
+        open={validPayment !== null}
         onClose={() => setPayingTemplate(null)}
-        recurring={payingTemplate}
+        recurring={validPayment}
       />
     </Fragment>
   );

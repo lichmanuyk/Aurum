@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.asset import Asset
-from app.models.enums import TransactionType
+from app.models.enums import AssetClass, TransactionType
 from app.models.recurring import RecurringTransaction
 from app.models.transaction import Transaction, TransactionSplit
 from app.schemas.asset_expense import AssetExpenseItem, AssetExpenseReport
@@ -58,6 +58,14 @@ async def get_asset_expense_report(
     asset = await session.get(Asset, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    # A crypto-class Asset row is always a CryptoHolding's own shell (see
+    # models/crypto.py) — it can never carry an expense_asset_id link (see
+    # routes/transactions.py's _ensure_expense_asset_valid and
+    # recurring_service.py's own check), so this report would always be
+    # trivially, permanently empty for one. Rejected outright rather than
+    # silently returning that guaranteed-empty shape.
+    if asset.asset_class == AssetClass.CRYPTO:
+        raise HTTPException(status_code=400, detail="Crypto assets do not have an expense report")
 
     start, end = _resolve_bounds(year, month)
     # get_reporting_session (api/deps.py) has already applied any `currency`

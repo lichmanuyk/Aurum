@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AssetExpensesModal } from "./AssetExpensesModal";
-import type { Asset, AssetExpenseReport } from "@/types";
+import type { Asset, AssetExpenseReport, RecurringTransaction } from "@/types";
 
 vi.mock("@/lib/auth", () => ({ getAuthHeader: () => null, clearCredentials: vi.fn() }));
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -24,6 +24,15 @@ const ASSET: Asset = {
 };
 
 const OTHER_ASSET: Asset = { ...ASSET, id: 2, name: "Synthetic car" };
+
+const TEMPLATE_A: RecurringTransaction = {
+  destination_currency: null, currency: "USD", id: 5, account_id: 1, account_name: "Checking",
+  category_id: null, category_name: null, category_color: null, category_icon: null,
+  expense_asset_id: ASSET.id, transfer_account_id: null, transfer_account_name: null, type: "expense",
+  amount: "20.00", description: "Old template A payment", merchant: null, notes: null, frequency: "monthly",
+  anchor_date: "2026-01-01", last_posted_date: null, is_active: true, next_due_date: "2026-09-01",
+  is_due: true, days_until_due: 0,
+};
 
 function report(overrides: Partial<AssetExpenseReport> = {}): AssetExpenseReport {
   return {
@@ -122,4 +131,90 @@ it("never shows a previous asset's stale total under the new asset's name", asyn
   expect(container.textContent).toContain("Synthetic car");
   expect(container.textContent).toMatch(/999/);
   expect(container.textContent).not.toMatch(/150/);
+});
+
+it("never offers a stale payment for a previous asset at the very first render of a new one — before any effect settles", async () => {
+  stubFetch({
+    1: report({ items: [], templates: [TEMPLATE_A] }),
+    2: report({ asset_id: 2, items: [], templates: [] }),
+  });
+  const queryClient = await mount(ASSET);
+
+  // Open the payment modal for asset 1's own template.
+  const payButton = [...container.querySelectorAll("button")]
+    .find((b) => /Провести платёж|Post now/.test(b.textContent ?? ""));
+  expect(payButton).toBeDefined();
+  act(() => { payButton!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  // The payment dialog's own title ("Оплата: …"/"Payment: …") renders
+  // synchronously from state, no network round-trip needed to show it.
+  expect(container.textContent).toContain("Old template A payment");
+
+  // Switch straight to a *different* asset — deliberately no `await
+  // settle()` here: this must hold on the very same render the new props
+  // land on, driven by validPayment's synchronous
+  // `payingTemplate.expense_asset_id === asset.id` check
+  // (AssetExpensesModal.tsx), not by a useEffect that only runs after
+  // paint.
+  act(() => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <AssetExpensesModal open asset={OTHER_ASSET} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+  });
+  expect(container.textContent).not.toContain("Old template A payment");
+  // The report dialog itself is showing again immediately too (not
+  // suspended behind a payment that no longer belongs here).
+  expect(container.textContent).toContain("Synthetic car");
+
+  await settle();
+  expect(container.textContent).not.toContain("Old template A payment");
+});
+
+it("clears a pending payment once this dialog closes (open -> false), not only lazily on the next open", async () => {
+  // Defense-in-depth: today's only wiring (NetWorthPage) always closes
+  // through handleClose, which already clears this synchronously — this
+  // test instead flips `open` straight through props, the way *any* other
+  // future caller might, to prove the dialog cleans up regardless of how
+  // it was told to close (see AssetExpensesModal.tsx's own `[open]` effect).
+  stubFetch({ 1: report({ items: [], templates: [TEMPLATE_A] }) });
+  const onClose = vi.fn();
+  const queryClient = await mount(ASSET, onClose);
+
+  const payButton = [...container.querySelectorAll("button")]
+    .find((b) => /Провести платёж|Post now/.test(b.textContent ?? ""));
+  act(() => { payButton!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  // The payment dialog's own title ("Оплата: …"/"Payment: …"), not just
+  // the template's bare description — that description alone would also
+  // legitimately appear in the report's own templates list regardless of
+  // whether a payment is pending for it, so it can't tell the two apart.
+  const paymentTitle = /Оплата: Old template A payment|Payment: Old template A payment/;
+  expect(container.textContent).toMatch(paymentTitle);
+
+  // The parent closes the whole dialog outright (open: true -> false)
+  // while the payment was still pending.
+  act(() => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <AssetExpensesModal open={false} asset={ASSET} onClose={onClose} />
+      </QueryClientProvider>,
+    );
+  });
+  await settle(); // let the `[open]` cleanup effect run
+
+  // Reopening the *same* asset afterwards must never resurrect the old
+  // payment — without the cleanup effect, payingTemplate would still
+  // match validPayment's own asset check and reopen it unasked. The
+  // template's description legitimately reappears in the templates list
+  // (same asset, same linked template) — only the payment dialog's own
+  // title must not.
+  act(() => {
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <AssetExpensesModal open asset={ASSET} onClose={onClose} />
+      </QueryClientProvider>,
+    );
+  });
+  expect(container.textContent).not.toMatch(paymentTitle);
+  expect(container.textContent).toContain("Old template A payment"); // still listed as a template, just not mid-payment
 });
