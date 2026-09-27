@@ -163,13 +163,43 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
           : [emptySplitRow(), emptySplitRow()]
       );
     } else {
-      setForm({ ...EMPTY_FORM, account_id: accounts?.[0] ? String(accounts[0].id) : "" });
+      setForm(EMPTY_FORM);
       setTags([]);
       setSplitMode(false);
       setSplitRows([emptySplitRow(), emptySplitRow()]);
     }
     setError(null);
-  }, [open, transaction, allAccounts]);
+    // Deliberately NOT `allAccounts` — see the accounts-default effect right
+    // below, which is split off from this one on purpose. This effect's own
+    // job is initializing/resetting the form for a specific open/transaction
+    // *identity* (a brand-new blank form, or loading a specific existing
+    // transaction to edit) — it must fire exactly once per those, not every
+    // time the accounts list happens to re-resolve (the initial GET
+    // /api/accounts landing after the modal is already open, or any later
+    // background refetch of it, e.g. from creating/editing an account
+    // elsewhere). Before this split, either of those re-ran the *whole*
+    // reset above mid-edit, silently discarding anything already
+    // typed/toggled — amount, date, description, the split rows, and the
+    // gross-income/mandatory-tax classification included.
+  }, [open, transaction]);
+
+  // The one piece of the reset above that *does* still depend on the
+  // accounts list — split into its own effect for exactly the reason the
+  // comment above explains. Only ever fills in the *first* available
+  // account as a convenience default, and only while: the form is for a
+  // brand-new transaction (never overwrites the account on one being
+  // edited), and no account has been chosen yet (never overwrites a manual
+  // selection, whether that came from the user or from this same effect on
+  // an earlier render). Depends on the first account's id specifically, not
+  // `allAccounts`/`accounts` themselves, so a refetch that resolves to an
+  // equivalent (or even identical) list — same ids, e.g. just a renamed
+  // account — is not a new dependency value and does not re-fire this.
+  const firstAccountId = accounts?.[0]?.id;
+  useEffect(() => {
+    if (open && !transaction && !form.account_id && firstAccountId !== undefined) {
+      setForm((prev) => (prev.account_id === "" ? { ...prev, account_id: String(firstAccountId) } : prev));
+    }
+  }, [open, transaction, firstAccountId, form.account_id]);
 
   // Fills the "today" default in from the server's business date (see
   // docs/tasks/business-date-timezone.md) the first time it becomes

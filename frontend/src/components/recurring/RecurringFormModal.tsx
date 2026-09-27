@@ -68,10 +68,32 @@ export function RecurringFormModal({ open, onClose, recurring }: RecurringFormMo
         anchor_date: recurring.anchor_date,
       });
     } else {
-      setForm({ ...EMPTY_FORM, account_id: accounts?.[0] ? String(accounts[0].id) : "" });
+      setForm(EMPTY_FORM);
     }
     setError(null);
-  }, [open, recurring, accounts]);
+    // Deliberately NOT `accounts` — see the accounts-default effect right
+    // below, split off from this one on purpose (same reasoning as
+    // TransactionFormModal's own reset/accounts-default split). This
+    // effect's job is initializing the form for a specific open/recurring
+    // *identity* — it must not re-run (and wipe amount/mandatory_payment_kind/
+    // whatever else is already typed) just because the accounts list
+    // resolved after the modal opened, or was refetched later.
+  }, [open, recurring]);
+
+  // The one piece of the reset above that still depends on the accounts
+  // list — split into its own effect for exactly the reason above. Only
+  // fills in the first available account as a convenience default while
+  // creating a brand-new template, and only while no account has been
+  // chosen yet — never overwrites an existing template's own account, and
+  // never overwrites a manual selection. Keyed on the first account's id,
+  // not `accounts` itself, so a refetch resolving to an equivalent list
+  // (same ids) is not a new dependency value and does not re-fire this.
+  const firstAccountId = accounts?.[0]?.id;
+  useEffect(() => {
+    if (open && !recurring && !form.account_id && firstAccountId !== undefined) {
+      setForm((prev) => (prev.account_id === "" ? { ...prev, account_id: String(firstAccountId) } : prev));
+    }
+  }, [open, recurring, firstAccountId, form.account_id]);
 
   // Fills the "today" default in for a new (non-editing) template the
   // first time the business date is available — never overwrites a date
