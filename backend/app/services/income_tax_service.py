@@ -49,6 +49,29 @@ def _split_can_match_period(split: TransactionSplit, year: int | None, month: in
     return True
 
 
+def _available_years(rows: list[Transaction]) -> list[int]:
+    """Every calendar year any assigned_period (its own, or any split
+    line's) falls in, across the *whole* set of matching rows — see
+    IncomeTaxReport.available_years's own docstring. Deliberately a plain
+    read of `.assigned_period.year`: never calls fx.transaction/fx.splits,
+    so a currency with no FX rate anywhere can never affect this, and
+    deliberately computed from every fetched row rather than from
+    `entries_by_period` below, so the current request's own year/month
+    filter (and which page of periods that filter's results land on) can
+    never narrow it either — the whole point is letting the Year picker
+    offer a year the current filter doesn't happen to include right now.
+    """
+    years: set[int] = set()
+    for tx in rows:
+        if tx.splits:
+            for split in tx.splits:
+                if split.assigned_period is not None:
+                    years.add(split.assigned_period.year)
+        elif tx.assigned_period is not None:
+            years.add(tx.assigned_period.year)
+    return sorted(years)
+
+
 async def get_income_tax_report(
     session: AsyncSession, year: int | None, month: int | None, page: int, page_size: int
 ) -> IncomeTaxReport:
@@ -65,6 +88,7 @@ async def get_income_tax_report(
         | (Transaction.splits.any(TransactionSplit.assigned_period.isnot(None)))
     )
     rows = (await session.execute(stmt)).scalars().all()
+    available_years = _available_years(rows)
 
     entries_by_period: dict[date_, list[IncomeTaxEntry]] = defaultdict(list)
     for tx in rows:
@@ -143,4 +167,5 @@ async def get_income_tax_report(
         total=total,
         page=page,
         page_size=page_size,
+        available_years=available_years,
     )

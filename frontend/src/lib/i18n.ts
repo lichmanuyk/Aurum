@@ -590,10 +590,12 @@ const ru = {
   "cashFlow.income": "Доход",
   "cashFlow.expense": "Расход",
   "cashFlow.taxExpense": "из них налоги",
+  "cashFlow.taxes": "Налоги",
   "cashFlow.net": "Баланс",
   "cashFlow.noData": "Нет данных за выбранный период.",
   "cashFlow.totalHint": "Итог показан за весь выбранный период, независимо от скрытых рядов.",
   "cashFlow.bothRowsHidden": "Доходы и расходы скрыты — включите один из рядов выше, чтобы увидеть график.",
+  "cashFlow.allRowsHidden": "Доходы, расходы и налоги скрыты — включите один из рядов выше, чтобы увидеть график.",
 
   "incomeTax.title": "Доход и налоги",
   "incomeTax.subtitle": "Грязный рабочий доход и фактически оплаченные ZUS/PPE/VAT по месяцу начисления — не по дате движения денег.",
@@ -1240,10 +1242,17 @@ const en: Record<keyof typeof ru, string> = {
   "cashFlow.income": "Income",
   "cashFlow.expense": "Expense",
   "cashFlow.taxExpense": "of which taxes",
+  // The tax row/bar/toggle's own label — a real cash outflow shown as its
+  // own line next to (not "included in") cashFlow.expense above, which is
+  // the ordinary, non-tax portion only. See CashFlowChart.tsx.
+  "cashFlow.taxes": "Taxes",
   "cashFlow.net": "Net",
   "cashFlow.noData": "No data for the selected period.",
   "cashFlow.totalHint": "The total is for the whole selected period, regardless of which rows are hidden.",
   "cashFlow.bothRowsHidden": "Income and expenses are both hidden — turn one back on above to see the chart.",
+  // Same empty state, for periods that also have a taxes row/bar/toggle —
+  // shown only once all three are hidden, not just income+expense.
+  "cashFlow.allRowsHidden": "Income, expenses, and taxes are all hidden — turn one back on above to see the chart.",
 
   "incomeTax.title": "Income & Taxes",
   "incomeTax.subtitle": "Gross work income and actually paid ZUS/PPE/VAT, grouped by the month they're assigned to — not the real cash date.",

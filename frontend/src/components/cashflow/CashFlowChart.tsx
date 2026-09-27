@@ -40,12 +40,31 @@ function computeYearTicks(keys: string[]): string[] {
 interface ChartPoint {
   key: string;
   income: number;
-  expense: number;
-  // Already included in `expense` above — see docs/tasks/
-  // income-tax-separation.md and CashFlowPoint.tax_expense's own docstring;
-  // shown alongside it, never subtracted a second time.
+  // The month's ORDINARY (non-tax) cash outflow only — the API's `expense`
+  // field is inclusive of `tax_expense` (mandatory ZUS/PPE/VAT payments;
+  // see CashFlowPoint's own docstring in types/index.ts for that contract),
+  // but the UI now shows the two as separate rows/bars/toggles rather than
+  // one lumped total, so this is `expense - tax_expense`. See splitExpense
+  // below for the shared arithmetic and its own unit test.
+  expenseOrdinary: number;
+  // This month's mandatory ZUS/PPE/VAT payments — a real cash outflow in
+  // its own right (already excluded from `expenseOrdinary` above), shown as
+  // its own row/bar/toggle, never subtracted a second time.
   tax_expense: number;
   net: number;
+}
+
+/** Pure split of the API's tax-inclusive `expense` into the ordinary
+ * (non-tax) portion the UI now renders separately from `tax_expense` —
+ * factored out so CashFlowChart.split.test.ts can exercise the arithmetic
+ * without mounting the component. Never touches `net`, which always comes
+ * straight from the server and is never recomputed client-side. */
+export function splitExpense(expense: number | string, taxExpense: number | string): {
+  ordinary: number;
+  tax: number;
+} {
+  const tax = Number(taxExpense);
+  return { ordinary: Number(expense) - tax, tax };
 }
 
 function ChartTooltip({
@@ -53,23 +72,27 @@ function ChartTooltip({
   payload,
   incomeLabel,
   expenseLabel,
-  taxExpenseLabel,
+  taxLabel,
   netLabel,
   formatCurrency,
   formatSignedCurrency,
   showIncome,
   showExpense,
+  showTax,
+  hasTax,
 }: {
   active?: boolean;
   payload?: Array<{ payload: ChartPoint }>;
   incomeLabel: string;
   expenseLabel: string;
-  taxExpenseLabel: string;
+  taxLabel: string;
   netLabel: string;
   formatCurrency: (amount: number | string) => string;
   formatSignedCurrency: (amount: number | string) => string;
   showIncome: boolean;
   showExpense: boolean;
+  showTax: boolean;
+  hasTax: boolean;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -83,12 +106,12 @@ function ChartTooltip({
       )}
       {showExpense && (
         <p className="text-danger">
-          {expenseLabel}: {formatCurrency(point.expense)}
+          {expenseLabel}: {formatCurrency(point.expenseOrdinary)}
         </p>
       )}
-      {showExpense && point.tax_expense > 0 && (
-        <p className="text-text-muted">
-          {taxExpenseLabel}: {formatCurrency(point.tax_expense)}
+      {hasTax && showTax && point.tax_expense > 0 && (
+        <p style={{ color: "var(--series-4)" }}>
+          {taxLabel}: {formatCurrency(point.tax_expense)}
         </p>
       )}
       <p className="font-medium text-text-primary">
@@ -128,23 +151,39 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
   const { formatCurrency, formatSignedCurrency } = useSectionFormat();
   const incomeLabel = t("cashFlow.income");
   const expenseLabel = t("cashFlow.expense");
-  const taxExpenseLabel = t("cashFlow.taxExpense");
+  const taxLabel = t("cashFlow.taxes");
   const netLabel = t("cashFlow.net");
   // Visual-only — hides/shows bars, never affects what's fetched, summed or
-  // shown as the total above (see cashFlow.totalHint below).
+  // shown as the total above (see cashFlow.totalHint below). Independent of
+  // each other: hiding taxes doesn't touch the ordinary expense row/bar or
+  // vice versa, and none of the three change `total_net`, which always
+  // comes straight from the server (income − every real cash outflow,
+  // taxes included) rather than being recomputed from visible rows.
   const [showIncome, setShowIncome] = useState(true);
   const [showExpense, setShowExpense] = useState(true);
+  const [showTax, setShowTax] = useState(true);
+
+  // Period-level, not per-month: a period with no tax payments at all gets
+  // no taxes row/bar/toggle rather than an always-zero one.
+  const hasTax = Number(cashFlow?.total_tax_expense ?? 0) > 0;
 
   const chartData: ChartPoint[] =
-    cashFlow?.points.map((point) => ({
-      key: monthKey(point.year, point.month),
-      income: Number(point.income),
-      expense: Number(point.expense),
-      tax_expense: Number(point.tax_expense),
-      net: Number(point.net),
-    })) ?? [];
+    cashFlow?.points.map((point) => {
+      const { ordinary, tax } = splitExpense(point.expense, point.tax_expense);
+      return {
+        key: monthKey(point.year, point.month),
+        income: Number(point.income),
+        expenseOrdinary: ordinary,
+        tax_expense: tax,
+        net: Number(point.net),
+      };
+    }) ?? [];
   const yearTicks = computeYearTicks(chartData.map((point) => point.key));
-  const bothHidden = !showIncome && !showExpense;
+  // Same empty state either way, just worded for however many rows this
+  // period actually has: income+expense only when there's no tax row at
+  // all (`!hasTax` short-circuits `!showTax` below so its toggle state,
+  // never rendered, can't gate anything), or all three once it does.
+  const allRowsHidden = !showIncome && !showExpense && (!hasTax || !showTax);
 
   return (
     <Card>
@@ -161,17 +200,20 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
                   {incomeLabel} {formatCurrency(cashFlow.total_income)}
                 </span>
                 <span className="text-text-muted"> · </span>
+                {/* ORDINARY (non-tax) expense only — `total_expense` from the
+                    API is inclusive of `total_tax_expense`, but this header
+                    now breaks the two out into their own lines rather than
+                    lumping tax payments silently into "Expense", so this is
+                    `total_expense - total_tax_expense`. Taxes below are a
+                    separate real outflow, not "included in" this figure. */}
                 <span className="font-medium text-danger">
-                  {expenseLabel} {formatCurrency(cashFlow.total_expense)}
+                  {expenseLabel} {formatCurrency(splitExpense(cashFlow.total_expense, cashFlow.total_tax_expense).ordinary)}
                 </span>
-                {Number(cashFlow.total_tax_expense) > 0 && (
+                {hasTax && (
                   <>
                     <span className="text-text-muted"> · </span>
-                    {/* Already counted inside total_expense above — an
-                        explicit breakdown, not a second deduction. See
-                        docs/tasks/income-tax-separation.md. */}
-                    <span className="font-medium text-text-muted">
-                      {taxExpenseLabel} {formatCurrency(cashFlow.total_tax_expense)}
+                    <span className="font-medium" style={{ color: "var(--series-4)" }}>
+                      {taxLabel} {formatCurrency(cashFlow.total_tax_expense)}
                     </span>
                   </>
                 )}
@@ -183,6 +225,9 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
         <div className="flex gap-2">
           <SeriesToggle label={incomeLabel} color="var(--success)" visible={showIncome} onToggle={() => setShowIncome((v) => !v)} />
           <SeriesToggle label={expenseLabel} color="var(--danger)" visible={showExpense} onToggle={() => setShowExpense((v) => !v)} />
+          {hasTax && (
+            <SeriesToggle label={taxLabel} color="var(--series-4)" visible={showTax} onToggle={() => setShowTax((v) => !v)} />
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -191,9 +236,9 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
             <div className="flex h-full items-center justify-center text-sm text-text-muted">
               {isLoading ? t("common.loading") : t("cashFlow.noData")}
             </div>
-          ) : bothHidden ? (
+          ) : allRowsHidden ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-text-muted">
-              {t("cashFlow.bothRowsHidden")}
+              {t(hasTax ? "cashFlow.allRowsHidden" : "cashFlow.bothRowsHidden")}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -212,14 +257,15 @@ export function CashFlowChart({ cashFlow, isLoading }: CashFlowChartProps) {
                 )}
                 <Tooltip
                   content={<ChartTooltip
-                    incomeLabel={incomeLabel} expenseLabel={expenseLabel} taxExpenseLabel={taxExpenseLabel} netLabel={netLabel}
+                    incomeLabel={incomeLabel} expenseLabel={expenseLabel} taxLabel={taxLabel} netLabel={netLabel}
                     formatCurrency={formatCurrency} formatSignedCurrency={formatSignedCurrency}
-                    showIncome={showIncome} showExpense={showExpense}
+                    showIncome={showIncome} showExpense={showExpense} showTax={showTax} hasTax={hasTax}
                   />}
                   cursor={{ fill: "var(--surface-2)" }}
                 />
                 {showIncome && <Bar dataKey="income" fill="var(--success)" radius={[2, 2, 0, 0]} isAnimationActive={false} />}
-                {showExpense && <Bar dataKey="expense" fill="var(--danger)" radius={[2, 2, 0, 0]} isAnimationActive={false} />}
+                {showExpense && <Bar dataKey="expenseOrdinary" fill="var(--danger)" radius={[2, 2, 0, 0]} isAnimationActive={false} />}
+                {hasTax && showTax && <Bar dataKey="tax_expense" fill="var(--series-4)" radius={[2, 2, 0, 0]} isAnimationActive={false} />}
               </BarChart>
             </ResponsiveContainer>
           )}

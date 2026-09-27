@@ -5,7 +5,6 @@ import { PillSelector } from "@/components/layout/PillSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { useIncomeTaxReport } from "@/hooks/useIncomeTax";
 import { useBusinessDate } from "@/hooks/useBusinessDate";
-import { useTransactionYears } from "@/hooks/useTransactions";
 import { businessDateYear } from "@/lib/businessDate";
 import { visibleMonthCount } from "@/lib/dashboardPeriod";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
@@ -102,7 +101,6 @@ function PeriodCard({ period, currency }: { period: IncomeTaxPeriod; currency: s
 export function IncomeTaxPage() {
   const { t } = useTranslation();
   const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
-  const { data: years } = useTransactionYears();
 
   const [year, setYear] = useState<number | null>(null);
   const [month, setMonth] = useState<number | null>(null);
@@ -114,6 +112,13 @@ export function IncomeTaxPage() {
     page,
     page_size: PAGE_SIZE,
   });
+  // Every calendar year any assigned_period actually falls in, per the
+  // backend (independent of the year/month filter above and of which
+  // page is showing) — never GET /transactions/years' real cash-date
+  // range, which this report deliberately does not group by. Falls back
+  // to the server's current year while report is still nothing/empty (no
+  // classified data yet), so "Year" mode always has at least one choice.
+  const years = report?.available_years.length ? report.available_years : businessDate ? [businessDateYear(businessDate)] : [];
 
   const mode: PeriodMode = year === null ? "all" : "year";
   const MODE_OPTIONS: Array<{ value: PeriodMode; label: string }> = [
@@ -163,7 +168,7 @@ export function IncomeTaxPage() {
                 allowAll
               />
             </div>
-            <YearSelector years={years ?? [businessDateYear(businessDate)]} year={year} onChange={handleYearChange} />
+            <YearSelector years={years} year={year} onChange={handleYearChange} />
           </div>
         )}
       </div>

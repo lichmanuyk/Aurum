@@ -522,6 +522,12 @@ export interface IncomeTaxReport {
   total: number;
   page: number;
   page_size: number;
+  // Every calendar year any assigned_period (its own, or any split line's)
+  // ever falls in across the *whole* ledger — never narrowed by this
+  // request's own year/month/page. See IncomeTaxReport.available_years's
+  // own docstring in backend/app/schemas/income_tax.py and
+  // docs/tasks/income-tax-separation.md.
+  available_years: number[];
 }
 
 export interface CategoryRankingChildItem {

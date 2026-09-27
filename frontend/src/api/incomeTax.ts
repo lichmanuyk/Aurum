@@ -6,6 +6,12 @@ export interface IncomeTaxFilters {
   month?: number;
   page?: number;
   page_size?: number;
+  // The Reports section's own configured currency (see
+  // lib/displayCurrency.tsx and docs/tasks/income-tax-separation.md) —
+  // forwarded verbatim to the same `currency` override
+  // get_reporting_session (api/deps.py) already accepts on every other
+  // report. Supplied by useIncomeTaxReport, not the page itself.
+  currency?: string;
 }
 
 export function fetchIncomeTaxReport(filters: IncomeTaxFilters = {}) {
