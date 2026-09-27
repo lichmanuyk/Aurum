@@ -1,12 +1,13 @@
 import { QuoteFreshness } from "./QuoteFreshness";
 import { NbpImport } from "./NbpImport";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { getCurrency, useTranslation } from "@/lib/i18n";
 
 type Rate = { id?: number; base_currency: string; quote_currency: string; rate_date: string; rate: string; source: string };
@@ -14,8 +15,19 @@ export function FxRatesCard() {
   const { language } = useTranslation();
   const ru = language === "ru";
   const cache = useQueryClient();
-  const [form, setForm] = useState<Rate>({ base_currency: "EUR", quote_currency: getCurrency(), rate_date: new Date().toISOString().slice(0, 10), rate: "", source: "manual" });
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`.
+  const [form, setForm] = useState<Rate>({ base_currency: "EUR", quote_currency: getCurrency(), rate_date: "", rate: "", source: "manual" });
   const [error, setError] = useState("");
+  // Fills the "today" default in the first time the business date is
+  // available — never overwrites a date the user has since edited, or one
+  // loaded from the "Edit" action on an existing row below (both leave
+  // rate_date non-empty).
+  useEffect(() => {
+    if (businessDate) setForm((prev) => (prev.rate_date === "" ? { ...prev, rate_date: businessDate } : prev));
+  }, [businessDate]);
   const query = useQuery({ queryKey: ["fx-rates"], queryFn: () => api.get<Rate[]>("/fx-rates") });
   const preflight = useQuery({ queryKey: ["money-preflight"], queryFn: () => api.get<{ unresolved_transfer_ids: number[]; unresolved_crypto_trade_ids: number[] }>("/fx-rates/preflight") });
   const save = useMutation({ mutationFn: (items: Rate[]) => api.post<Rate[]>("/fx-rates/bulk", { items }), onSuccess: async () => { setError(""); await cache.invalidateQueries(); }, onError: (e: Error) => setError(e.message) });
@@ -36,7 +48,15 @@ export function FxRatesCard() {
       <form className="grid gap-3 sm:grid-cols-2" onSubmit={e => { e.preventDefault(); save.mutate([form]); }}>
         <CurrencySelect value={form.base_currency} onChange={base_currency => setForm({ ...form, base_currency })} />
         <CurrencySelect value={form.quote_currency} onChange={quote_currency => setForm({ ...form, quote_currency })} />
-        <label>{ru ? "Дата курса" : "Rate date"}<Input type="date" required value={form.rate_date} onChange={e => setForm({ ...form, rate_date: e.target.value })} /></label>
+        <label>{ru ? "Дата курса" : "Rate date"}<Input type="date" required value={form.rate_date} onChange={e => setForm({ ...form, rate_date: e.target.value })} />
+          {form.rate_date === "" && (
+            businessDateError ? (
+              <span className="mt-1 block text-xs text-danger">{ru ? "Не удалось получить дату с сервера" : "Could not get the date from the server"} <button type="button" className="underline" onClick={retryBusinessDate}>{ru ? "Повторить" : "Retry"}</button></span>
+            ) : (
+              <span className="mt-1 block text-xs text-text-muted">{ru ? "Загрузка даты…" : "Loading date…"}</span>
+            )
+          )}
+        </label>
         <label>{`1 ${form.base_currency} = … ${form.quote_currency}`}<Input aria-label="FX rate" type="number" step="any" min="0.000000000000000001" required value={form.rate} onChange={e => setForm({ ...form, rate: e.target.value })} /></label>
         <Button disabled={save.isPending || form.base_currency === form.quote_currency}>{ru ? "Сохранить курс" : "Save rate"}</Button>
       </form>

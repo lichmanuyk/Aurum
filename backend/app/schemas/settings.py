@@ -1,10 +1,12 @@
 from app.core.money import Currency
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core.config import APP_VERSION
+from app.core.clock import business_today
+from app.core.config import APP_VERSION, get_settings
 
 # The Dashboard/Net Worth/Crypto display-currency feature deliberately
 # offers only these three, not the full CURRENCIES list `Currency` allows —
@@ -38,6 +40,17 @@ class AppSettingsRead(BaseModel):
     # which is deliberately unauthenticated and so would hand the running
     # version to anyone who can reach the instance.
     app_version: str = APP_VERSION
+    # Also not a stored column, same "fills in on validation" shape as
+    # app_version above, but a `default_factory` (not a plain `=`) is
+    # required here: this is a fresh reading of the server's current
+    # business day (see app/core/clock.py) — a plain default would freeze
+    # onto whatever day the process happened to import this module, and
+    # never advance. The frontend's useBusinessDate() hook (see
+    # docs/tasks/business-date-timezone.md) treats this GET /api/settings
+    # response as the one place it reads "what day is it" from — never the
+    # browser's own Date(). Same authenticated-only reasoning as app_version.
+    business_date: date = Field(default_factory=business_today)
+    business_timezone: str = Field(default_factory=lambda: get_settings().business_timezone)
 
 
 class AppSettingsUpdate(BaseModel):

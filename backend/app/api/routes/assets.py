@@ -1,4 +1,5 @@
 from app.services.settings_service import get_or_create_app_settings
+from app.core.clock import business_today
 from app.core.money import require_money
 from datetime import date
 from decimal import Decimal
@@ -75,7 +76,7 @@ async def list_assets(session: AsyncSession = Depends(get_reporting_session)) ->
     result = await session.execute(select(Asset).options(*_EAGER).order_by(Asset.name))
     assets = result.scalars().all()
     fx = await FXConverter.load(session)
-    today = date.today()
+    today = business_today()
     return [_to_read(asset, fx, today) for asset in assets]
 
 
@@ -98,7 +99,7 @@ async def create_asset(payload: AssetCreate, session: AsyncSession = Depends(get
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset.id))
-    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), date.today())
+    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), business_today())
 
 
 @router.patch("/{asset_id}", response_model=AssetRead)
@@ -128,7 +129,7 @@ async def update_asset(asset_id: int, payload: AssetUpdate, session: AsyncSessio
         setattr(asset, field, value)
     await session.commit()
     await session.refresh(asset, attribute_names=["valuations"])
-    return _to_read(asset, await FXConverter.load(session), date.today())
+    return _to_read(asset, await FXConverter.load(session), business_today())
 
 
 @router.post("/{asset_id}/valuations", response_model=AssetRead)
@@ -156,7 +157,7 @@ async def add_asset_valuation(
     await session.commit()
 
     refreshed = await session.execute(select(Asset).options(*_EAGER).where(Asset.id == asset_id))
-    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), date.today())
+    return _to_read(refreshed.scalar_one(), await FXConverter.load(session), business_today())
 
 
 @router.get("/{asset_id}/valuations", response_model=list[AssetValuationRead])

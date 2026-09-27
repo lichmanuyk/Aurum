@@ -4,6 +4,7 @@ from datetime import date
 from httpx import AsyncClient
 
 from tests.helpers import money, txn_payload
+from app.core.clock import business_today
 
 
 async def test_debit_card_is_a_liquid_account_type(client: AsyncClient, categories):
@@ -23,14 +24,14 @@ async def test_debit_card_is_a_liquid_account_type(client: AsyncClient, categori
             type="income",
             amount="1000.00",
             category_id=categories["Salary"]["id"],
-            date=date.today().isoformat(),
+            date=business_today().isoformat(),
         ),
     )
     assert transaction.status_code == 201
 
     # Explicit historical FX replaces the former RUB == USD assumption.
     await client.patch("/settings", json={"currency": "USD"})
-    rate = await client.post("/fx-rates/bulk", json={"items": [{"base_currency": "RUB", "quote_currency": "USD", "rate_date": date.today().isoformat(), "rate": "0.01"}]})
+    rate = await client.post("/fx-rates/bulk", json={"items": [{"base_currency": "RUB", "quote_currency": "USD", "rate_date": business_today().isoformat(), "rate": "0.01"}]})
     assert rate.status_code == 200
     summary = await client.get("/net-worth/summary", params={"range": "all"})
 

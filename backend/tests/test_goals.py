@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from datetime import date, timedelta
 
 from tests.helpers import money
+from app.core.clock import business_today
 
 
 async def _goal(client: AsyncClient) -> dict:
@@ -36,7 +37,7 @@ async def test_negative_contribution_is_allowed(client: AsyncClient):
 
 
 async def test_goal_progress_does_not_move_cash_and_asset_value_starts_on_its_date(client, account_id):
-    today = date.today()
+    today = business_today()
     opening = await client.post('/transactions', json={
         'account_id': account_id, 'type': 'adjustment', 'amount': '1000',
         'adjustment_reason': 'opening_balance', 'description': 'Opening cash', 'date': str(today),
@@ -71,7 +72,7 @@ async def test_goal_progress_does_not_move_cash_and_asset_value_starts_on_its_da
 
 
 async def test_goal_reservation_reduces_available_cash_without_moving_capital(client, account_id):
-    today = str(date.today())
+    today = str(business_today())
     opening = await client.post('/transactions', json={
         'account_id': account_id, 'type': 'adjustment', 'amount': '1000',
         'adjustment_reason': 'opening_balance', 'description': 'Opening cash', 'date': today,

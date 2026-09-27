@@ -8,6 +8,7 @@ import { Input, Label, Select } from "@/components/ui/Input";
 import { TagInput } from "@/components/transactions/TagInput";
 import { ExpenseAssetSelect } from "@/components/transactions/ExpenseAssetSelect";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useCategories } from "@/hooks/useCategories";
 import { useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
 import { useTranslation } from "@/lib/i18n";
@@ -21,10 +22,6 @@ interface TransactionFormModalProps {
   transaction?: Transaction | null;
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 const EMPTY_FORM = {
   type: "expense" as TransactionType,
   account_id: "",
@@ -36,7 +33,13 @@ const EMPTY_FORM = {
   description: "",
   merchant: "",
   notes: "",
-  date: todayIso(),
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md), never a client-guessed
+  // `new Date()` — starts empty and is filled by the effect below the
+  // first time that date becomes available, so there's no brief flash of
+  // the wrong day before it loads. See the "date" input's own render for
+  // the explicit loading/error state while this is still "".
+  date: "",
   // "" = no link; an asset id otherwise — only meaningful while
   // type === "expense" and splitMode is off (see
   // docs/tasks/property-expense-links.md). A split's lines carry their own
@@ -79,6 +82,7 @@ function toCents(value: string): bigint {
 
 export function TransactionFormModal({ open, onClose, transaction }: TransactionFormModalProps) {
   const { t, language } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const { data: allAccounts } = useAccounts(true);
   const accounts = allAccounts?.filter(a => !a.is_archived || a.id === transaction?.account_id || a.id === transaction?.transfer_account_id);
   const { data: categories } = useCategories();
@@ -146,6 +150,21 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
     }
     setError(null);
   }, [open, transaction, allAccounts]);
+
+  // Fills the "today" default in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) the first time it becomes
+  // available — deliberately a separate effect/dependency from the reset
+  // above: the modal often opens before that first GET /api/settings
+  // resolves, and this must not wait for (or re-trigger) the whole form
+  // reset once it does. Only fires for a brand-new transaction with the
+  // date field still untouched — editing an existing one always shows that
+  // transaction's own recorded date instead (set above), and any date the
+  // user has since typed here is left alone forever after.
+  useEffect(() => {
+    if (open && !transaction && businessDate && form.date === "") {
+      setForm((prev) => (prev.date === "" ? { ...prev, date: businessDate } : prev));
+    }
+  }, [open, transaction, businessDate, form.date]);
 
   const kindCategories = (categories ?? []).filter((category) =>
     form.type === "income" ? category.kind === "income" : category.kind === "expense"
@@ -372,6 +391,21 @@ export function TransactionFormModal({ open, onClose, transaction }: Transaction
               value={form.date}
               onChange={(event) => setForm((prev) => ({ ...prev, date: event.target.value }))}
             />
+            {/* Only shown while the "today" default itself hasn't arrived
+                yet (new transaction, field still blank) — never a stale
+                message once the user has picked/typed any date. */}
+            {!transaction && form.date === "" && (
+              businessDateError ? (
+                <p className="mt-1 text-xs text-danger">
+                  {t("businessDate.error")}{" "}
+                  <button type="button" className="underline" onClick={retryBusinessDate}>
+                    {t("businessDate.retry")}
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+              )
+            )}
           </div>
         </div>
 

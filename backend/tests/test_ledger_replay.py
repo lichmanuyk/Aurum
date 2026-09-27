@@ -2,6 +2,7 @@
 from datetime import date
 from decimal import Decimal
 from random import Random
+from app.core.clock import business_today
 
 async def test_mixed_ledger_replay_and_backup(client,account_id):
     other=(await client.post('/accounts',json={'name':'Synthetic reserve','currency':'USD'})).json()['id']
@@ -12,7 +13,7 @@ async def test_mixed_ledger_replay_and_backup(client,account_id):
         amount=Decimal(rng.randint(1,1000000))/Decimal(1000000)
         source,target=(account_id,other) if index%2 else (other,account_id)
         kind=['income','expense','transfer','adjustment'][index%4]
-        payload=dict(account_id=source,type=kind,amount=str(amount),description='Synthetic replay',date=str(date.today()))
+        payload=dict(account_id=source,type=kind,amount=str(amount),description='Synthetic replay',date=str(business_today()))
         if kind=='transfer':payload.update(transfer_account_id=target,destination_amount=str(amount));balances[target]+=amount
         if kind=='adjustment':payload['adjustment_reason']='reconciliation'
         response=await client.post('/transactions',json=payload)

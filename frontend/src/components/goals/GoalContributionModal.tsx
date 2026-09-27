@@ -3,6 +3,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useAddGoalContribution } from "@/hooks/useGoals";
 import { useTranslation } from "@/lib/i18n";
 import { formatMoney } from "@/lib/format";
@@ -14,12 +15,9 @@ interface GoalContributionModalProps {
   goal: Goal | null;
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function GoalContributionModal({ open, onClose, goal }: GoalContributionModalProps) {
   const { t } = useTranslation();
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const addContribution = useAddGoalContribution();
   const { data: accounts } = useAccounts();
   const eligible = accounts?.filter(account => account.currency === goal?.currency &&
@@ -27,16 +25,28 @@ export function GoalContributionModal({ open, onClose, goal }: GoalContributionM
 
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(0);
-  const [date, setDate] = useState(todayIso());
+  // Filled in from the server's business date (see
+  // docs/tasks/business-date-timezone.md) by the effect below — starts
+  // empty, never a client-guessed `new Date()`.
+  const [date, setDate] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setAmount("");
     setAccountId(0);
-    setDate(todayIso());
+    // "" (not a re-guessed date) so reopening after being closed across
+    // midnight re-fills from the *current* business date.
+    setDate("");
     setError(null);
   }, [open, goal]);
+
+  // Fills the "today" default in the first time the business date is
+  // available after the dialog opens — never overwrites a date the user
+  // has since edited (guarded by `date === ""`).
+  useEffect(() => {
+    if (open && businessDate) setDate((current) => (current === "" ? businessDate : current));
+  }, [open, businessDate]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -87,6 +97,18 @@ export function GoalContributionModal({ open, onClose, goal }: GoalContributionM
               value={date}
               onChange={(event) => setDate(event.target.value)}
             />
+            {date === "" && (
+              businessDateError ? (
+                <p className="mt-1 text-xs text-danger">
+                  {t("businessDate.error")}{" "}
+                  <button type="button" className="underline" onClick={retryBusinessDate}>
+                    {t("businessDate.retry")}
+                  </button>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">{t("businessDate.loading")}</p>
+              )
+            )}
           </div>
         </div>
         <p className="text-xs text-text-muted">{t("goal.contribution.hint")}</p>

@@ -16,12 +16,13 @@ from fastapi import HTTPException
 from app.services.money_service import native_balances
 from app.services.fx_service import FXConverter
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import business_today
 from app.models.account import Account
 from app.models.enums import AccountType, TransactionType
 from app.models.transaction import Transaction
@@ -45,7 +46,7 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 
 
 async def _negative_cash_flow_streak(session: AsyncSession) -> int:
-    today = date.today()
+    today = business_today()
     year, month = _previous_month(today.year, today.month)
 
     streak = 0
@@ -59,7 +60,7 @@ async def _negative_cash_flow_streak(session: AsyncSession) -> int:
 
 
 def _net_worth_decline_streak(summary: NetWorthSummary) -> int:
-    today = date.today()
+    today = business_today()
 
     # Keep the last point seen for each (year, month) — `series` is ordered
     # ascending by date, so that's the month-end value — and drop the
@@ -108,15 +109,15 @@ async def _idle_cash_account_count(session: AsyncSession, threshold_amount: Deci
     currencies = dict((await session.execute(select(Account.id, Account.currency))).all())
     fx = await FXConverter.load(session)
     settings = await get_or_create_app_settings(session)
-    balances = {key: fx.convert(value, currencies[key], date.today(), settings.idle_cash_threshold_currency) for key, value in balances.items() if key in eligible_ids}
+    balances = {key: fx.convert(value, currencies[key], business_today(), settings.idle_cash_threshold_currency) for key, value in balances.items() if key in eligible_ids}
     last_activity = {}
     for _, _, account_id, destination_id, tx_date in rows.all():
-        if tx_date <= date.today():
+        if tx_date <= business_today():
             for key in (account_id, destination_id):
                 if key in eligible_ids:
                     last_activity[key] = max(last_activity.get(key, tx_date), tx_date)
 
-    cutoff = date.today() - timedelta(days=threshold_days)
+    cutoff = business_today() - timedelta(days=threshold_days)
     return sum(
         1
         for account_id in eligible_ids
@@ -173,7 +174,7 @@ async def get_financial_alerts(session: AsyncSession) -> AlertsResponse:
         unavailable.append({"check": "net_worth", "detail": exc.detail})
 
     try:
-        today = date.today()
+        today = business_today()
         budget_status = await get_budget_status(session, today.year, today.month)
         over_budget_count = sum(1 for item in budget_status.items if item.is_over_budget)
         if over_budget_count > 0:

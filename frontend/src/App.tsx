@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { useInvalidateOnBusinessDateChange } from "@/hooks/useBusinessDate";
 import { useLocalStorageState } from "@/hooks/useLocalStorageState";
 import { useAppSettings } from "@/hooks/useSettings";
 import { setCurrency } from "@/lib/i18n";
@@ -35,6 +36,13 @@ export default function App() {
   useEffect(() => {
     if (settings) setCurrency(settings.currency);
   }, [settings]);
+  // Mounted exactly once, here at the app's root — keeps the server's
+  // business date (see docs/tasks/business-date-timezone.md) polling/
+  // refocus-checking for the whole app's lifetime regardless of which
+  // page happens to be active, and invalidates every date-sensitive query
+  // the moment that date actually changes (never per-poll, never on the
+  // very first load — see the hook's own docstring).
+  useInvalidateOnBusinessDateChange();
 
   return (
     <DisplayCurrencyProvider>

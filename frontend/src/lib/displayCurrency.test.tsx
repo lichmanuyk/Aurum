@@ -37,6 +37,8 @@ function baseSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     cash_flow_currency: null,
     reports_currency: null,
     app_version: "test",
+    business_date: "2026-01-01",
+    business_timezone: "Europe/Warsaw",
     ...overrides,
   };
 }

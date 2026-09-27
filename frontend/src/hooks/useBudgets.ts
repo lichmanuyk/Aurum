@@ -15,8 +15,15 @@ export function useBudgets() {
   return useQuery({ queryKey: ["budgets"], queryFn: fetchBudgets });
 }
 
-export function useBudgetStatus(year: number, month: number) {
-  return useQuery({ queryKey: ["budget-status", year, month], queryFn: () => fetchBudgetStatus(year, month) });
+/** `options.enabled` (default true) — pass `false` while the caller's own
+ * period (year/month) hasn't resolved yet (see pages/BudgetPage.tsx's own
+ * business-date-seeded default) so this never fires with a placeholder. */
+export function useBudgetStatus(year: number, month: number, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["budget-status", year, month],
+    queryFn: () => fetchBudgetStatus(year, month),
+    enabled: options?.enabled,
+  });
 }
 
 export function useCreateBudget() {

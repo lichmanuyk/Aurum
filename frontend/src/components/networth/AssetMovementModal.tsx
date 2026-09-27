@@ -4,16 +4,22 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label, Select } from "@/components/ui/Input";
 import { useAccounts } from "@/hooks/useAccounts";
 import { useAssetMovements, useAssetMovementActions } from "@/hooks/useAssetMovements";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { formatMoney, formatTransactionDate } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
 import type { Asset, AssetMovement, AssetMovementInput } from "@/types";
 
 const cashTypes = new Set(["checking", "debit_card", "savings", "cash", "investment"]);
-const today = () => new Date().toLocaleDateString("en-CA");
-const empty = (asset: Asset, accountId: number): AssetMovementInput => ({
+// `date` starts as whatever the caller passes in — "" until the server's
+// business date (see docs/tasks/business-date-timezone.md) has loaded, never
+// a client-guessed `new Date()`/`toLocaleDateString()`. The crypto branch's
+// min/max below is gated on that same value for exactly the same reason: the
+// backend's "cash-linked crypto trades require today's date" check compares
+// against its own business date, not whatever timezone the browser is in.
+const empty = (asset: Asset, accountId: number, date: string): AssetMovementInput => ({
   asset_id: asset.id, account_id: accountId, type: "buy", gross_amount: "", fee_amount: "0",
   asset_value_after: asset.asset_class === "crypto" ? null : asset.current_value,
-  quantity: null, price_per_unit: null, date: today(), note: null,
+  quantity: null, price_per_unit: null, date, note: null,
   idempotency_key: crypto.randomUUID(),
 });
 
@@ -22,6 +28,7 @@ interface Props { open: boolean; onClose: () => void; asset: Asset | null }
 export function AssetMovementModal({ open, onClose, asset }: Props) {
   const { language } = useTranslation();
   const ru = language === "ru";
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   const { data: accounts } = useAccounts();
   const { data: movements } = useAssetMovements(open ? asset?.id ?? null : null);
   const { create, update, remove } = useAssetMovementActions();
@@ -34,10 +41,25 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
   useEffect(() => {
     if (open && asset) {
       setEditing(null);
-      setForm(empty(asset, eligible[0]?.id ?? 0));
+      setForm(empty(asset, eligible[0]?.id ?? 0, businessDate ?? ""));
       setError("");
     }
+    // businessDate deliberately excluded here: this effect resets the whole
+    // form on open/asset/account-list change, and must not re-fire on every
+    // later business-date poll — the fill-once effect below handles filling
+    // `date` in without touching anything else the user has since entered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, asset?.id, asset?.asset_class === "crypto" ? null : asset?.current_value, eligible[0]?.id]);
+
+  // Fills the "today" default in the first time the business date is
+  // available after the dialog opens — never overwrites a date the user
+  // (or `editMovement` below, loading an existing trade's own date) has
+  // already put there.
+  useEffect(() => {
+    if (open && businessDate) {
+      setForm((prev) => (prev && prev.date === "" ? { ...prev, date: businessDate } : prev));
+    }
+  }, [open, businessDate]);
 
   if (!asset || !form) return null;
   const isCrypto = asset.asset_class === "crypto";
@@ -62,7 +84,7 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
       if (editing) await update.mutateAsync({ id: editing.id, input: form });
       else await create.mutateAsync(form);
       setEditing(null);
-      setForm(empty(asset, form.account_id));
+      setForm(empty(asset, form.account_id, businessDate ?? ""));
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
 
@@ -71,7 +93,7 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
     if (!window.confirm(ru ? "Удалить покупку/продажу и вернуть деньги на счёт?" : "Delete this trade and reverse its cash movement?")) return;
     try {
       await remove.mutateAsync(item.id);
-      if (editing?.id === item.id) { setEditing(null); setForm(empty(asset, item.account_id)); }
+      if (editing?.id === item.id) { setEditing(null); setForm(empty(asset, item.account_id, businessDate ?? "")); }
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
@@ -89,10 +111,18 @@ export function AssetMovementModal({ open, onClose, asset }: Props) {
         <div><Label htmlFor="movement-quantity">{ru ? "Количество монет" : "Coin quantity"}</Label><Input id="movement-quantity" type="number" min="0.000000000000000001" step="any" required value={form.quantity ?? ""} onChange={(e) => setForm({ ...form, quantity: e.target.value || null })} /></div>
         <div><Label htmlFor="movement-price">{ru ? "Цена одной монеты" : "Unit price"} · {asset.currency}</Label><Input id="movement-price" type="number" min="0.000000000000000001" step="any" required value={form.price_per_unit ?? ""} onChange={(e) => setForm({ ...form, price_per_unit: e.target.value || null })} /></div>
       </> : <><p className="text-xs text-text-muted">{ru ? "Если в один день было несколько сделок, укажите стоимость актива после каждой." : "For multiple trades on one day, enter the asset value after each trade."}</p><div><Label htmlFor="movement-value">{ru ? "Стоимость актива после операции" : "Asset value after trade"} · {asset.currency}</Label><Input id="movement-value" type="number" min="0" step="0.01" required value={form.asset_value_after ?? ""} onChange={(e) => setForm({ ...form, asset_value_after: e.target.value })} /></div></>}
-      <div><Label htmlFor="movement-date">{ru ? "Дата" : "Date"}</Label><Input id="movement-date" type="date" required disabled={Boolean(editing)} max={isCrypto ? today() : undefined} min={isCrypto ? today() : undefined} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+      <div><Label htmlFor="movement-date">{ru ? "Дата" : "Date"}</Label><Input id="movement-date" type="date" required disabled={Boolean(editing)} max={isCrypto ? businessDate : undefined} min={isCrypto ? businessDate : undefined} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+        {form.date === "" && (
+          businessDateError ? (
+            <p className="mt-1 text-xs text-danger">{ru ? "Не удалось получить дату с сервера" : "Could not get the date from the server"} <button type="button" className="underline" onClick={retryBusinessDate}>{ru ? "Повторить" : "Retry"}</button></p>
+          ) : (
+            <p className="mt-1 text-xs text-text-muted">{ru ? "Загрузка даты…" : "Loading date…"}</p>
+          )
+        )}
+      </div>
       <div><Label htmlFor="movement-note">{ru ? "Примечание" : "Note"}</Label><Input id="movement-note" value={form.note ?? ""} onChange={(e) => setForm({ ...form, note: e.target.value || null })} /></div>
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-      <div className="flex gap-2"><Button type="submit" disabled={pending || !selected}>{editing ? (ru ? "Сохранить" : "Save") : (ru ? "Записать операцию" : "Record trade")}</Button>{editing && <Button type="button" variant="secondary" onClick={() => { setEditing(null); setForm(empty(asset, form.account_id)); }}>{ru ? "Отмена" : "Cancel"}</Button>}</div>
+      <div className="flex gap-2"><Button type="submit" disabled={pending || !selected}>{editing ? (ru ? "Сохранить" : "Save") : (ru ? "Записать операцию" : "Record trade")}</Button>{editing && <Button type="button" variant="secondary" onClick={() => { setEditing(null); setForm(empty(asset, form.account_id, businessDate ?? "")); }}>{ru ? "Отмена" : "Cancel"}</Button>}</div>
     </form>
     <div className="mt-5 border-t border-border pt-3"><h3 className="mb-2 text-sm font-semibold">{ru ? "Связанные операции" : "Linked trades"}</h3>{!movements?.length ? <p className="text-xs text-text-muted">{ru ? "Пока нет" : "None yet"}</p> : <ul className="divide-y divide-gridline">{movements.map((item) => <li key={item.id} className="flex items-center justify-between gap-2 py-2 text-xs"><span>{formatTransactionDate(item.date)} · {item.type === "buy" ? (ru ? "Покупка" : "Buy") : (ru ? "Продажа" : "Sell")} · {formatMoney(item.cash_amount, item.account_currency)} · {item.account_name}</span><span className="flex gap-2"><button type="button" className="text-text-secondary" onClick={() => editMovement(item)}>{ru ? "Изменить" : "Edit"}</button><button type="button" className="text-danger" onClick={() => deleteMovement(item)}>{ru ? "Удалить" : "Delete"}</button></span></li>)}</ul>}</div>
   </Dialog>;

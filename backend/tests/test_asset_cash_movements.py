@@ -5,10 +5,11 @@ from decimal import Decimal
 
 from app.services import crypto_service
 from tests.test_crypto import _fake_fetch, _point
+from app.core.clock import business_today
 
 
 async def test_manual_asset_purchase_revalue_sale_edit_delete_and_restore(client, account_id):
-    today = date.today()
+    today = business_today()
     yesterday = today - timedelta(days=1)
     before = today - timedelta(days=2)
 
@@ -66,7 +67,7 @@ async def test_manual_asset_purchase_revalue_sale_edit_delete_and_restore(client
 
 async def test_crypto_trade_moves_cash_and_coin_together(client, account_id, monkeypatch):
     monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('100')}))
-    today = str(date.today())
+    today = str(business_today())
     assert (await client.post('/transactions', json=dict(account_id=account_id, type='adjustment',
         amount='1000', adjustment_reason='opening_balance', description='Opening', date=today))).status_code == 201
     holding = (await client.post('/crypto/holdings', json=dict(coingecko_id='bitcoin', symbol='BTC',
@@ -96,7 +97,7 @@ async def test_crypto_trade_moves_cash_and_coin_together(client, account_id, mon
 
 
 async def test_two_manual_asset_trades_on_one_day_restore_and_delete_in_reverse_order(client, account_id):
-    yesterday, today = str(date.today() - timedelta(days=1)), str(date.today())
+    yesterday, today = str(business_today() - timedelta(days=1)), str(business_today())
     assert (await client.post('/transactions', json=dict(account_id=account_id, type='adjustment',
         amount='1000', adjustment_reason='opening_balance', description='Opening', date=yesterday))).status_code == 201
     asset = (await client.post('/assets', json=dict(name='Two trades', asset_class='investments',
@@ -127,8 +128,8 @@ async def test_two_manual_asset_trades_on_one_day_restore_and_delete_in_reverse_
 
 
 async def test_fees_affect_cash_once_and_not_income_or_spending(client, account_id):
-    yesterday = str(date.today() - timedelta(days=1))
-    today = str(date.today())
+    yesterday = str(business_today() - timedelta(days=1))
+    today = str(business_today())
     assert (await client.post('/transactions', json=dict(account_id=account_id, type='adjustment',
         amount='1000', adjustment_reason='opening_balance', description='Opening', date=yesterday))).status_code == 201
     asset = (await client.post('/assets', json=dict(name='Fee test', asset_class='investments',

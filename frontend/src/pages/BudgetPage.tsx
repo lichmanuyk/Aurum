@@ -1,28 +1,43 @@
 import { MoneyError } from "@/components/ui/MoneyError";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { BusinessDateNotice } from "@/components/layout/BusinessDateNotice";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { AlertBanner } from "@/components/insights/AlertBanner";
 import { BudgetList } from "@/components/budget/BudgetList";
 import { BudgetFormModal } from "@/components/budget/BudgetFormModal";
 import { useBudgets, useBudgetStatus, useDeleteBudget } from "@/hooks/useBudgets";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useTransactionYears } from "@/hooks/useTransactions";
+import { businessDateMonth, businessDateYear } from "@/lib/businessDate";
 import { useTranslation } from "@/lib/i18n";
 import { translateCategoryName } from "@/lib/categoryLabels";
 import type { Budget, BudgetStatus } from "@/types";
 
 export function BudgetPage() {
   const { t } = useTranslation();
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  // The server's business date (see docs/tasks/business-date-timezone.md),
+  // not the browser's own `new Date()` — a budget is always exactly one
+  // specific month, unlike Dashboard's "Всё время" default, so there's no
+  // date-independent mode to fall back to here at all: `period` stays
+  // `null` ("not resolved yet", never a browser-guessed month) until the
+  // one-time effect below seeds it from the real business date.
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
+  const [period, setPeriod] = useState<{ year: number; month: number } | null>(null);
+  useEffect(() => {
+    if (period !== null || !businessDate) return;
+    setPeriod({ year: businessDateYear(businessDate), month: businessDateMonth(businessDate) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessDate]);
   const { data: years } = useTransactionYears();
 
   const { data: budgets } = useBudgets();
-  const { data: status, isLoading, error } = useBudgetStatus(year, month);
+  const { data: status, isLoading, error } = useBudgetStatus(period?.year ?? 0, period?.month ?? 0, {
+    enabled: period !== null,
+  });
   const deleteBudget = useDeleteBudget();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -56,25 +71,38 @@ export function BudgetPage() {
     <div className="space-y-5">
       <AlertBanner />
 
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          {/* allowAll defaults to false — a budget is always exactly one
-              month, so onChange never actually receives null here. */}
-          <MonthSelector month={month} onChange={(value) => setMonth(value ?? month)} />
+      {period && (
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            {/* allowAll defaults to false — a budget is always exactly one
+                month, so onChange never actually receives null here. */}
+            <MonthSelector
+              month={period.month}
+              onChange={(value) => setPeriod({ year: period.year, month: value ?? period.month })}
+            />
+          </div>
+          <YearSelector
+            years={years ?? [period.year]}
+            year={period.year}
+            onChange={(year) => setPeriod({ year, month: period.month })}
+          />
         </div>
-        <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={setYear} />
-      </div>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>{t("nav.budget")}</CardTitle>
-          <Button onClick={openCreateModal}>
+          <Button onClick={openCreateModal} disabled={period === null}>
             <Plus size={16} />
             {t("common.add")}
           </Button>
         </CardHeader>
         <CardContent>
-          {error ? <MoneyError error={error} /> : isLoading ? (
+          {period === null ? (
+            <div className="py-10 text-center">
+              <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} />
+            </div>
+          ) : error ? <MoneyError error={error} /> : isLoading ? (
             <p className="py-10 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
             <BudgetList items={status?.items ?? []} onEdit={openEditModal} onDelete={handleDelete} />

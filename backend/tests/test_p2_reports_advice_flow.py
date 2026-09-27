@@ -4,12 +4,13 @@ from datetime import date
 from httpx import AsyncClient
 
 from tests.helpers import money, txn_payload
+from app.core.clock import business_today
 
 
 async def test_reports_alerts_and_advice_reconcile_then_expose_missing_fx(
     client: AsyncClient, account_id, categories
 ):
-    today = date.today()
+    today = business_today()
     period = {"year": today.year, "month": today.month}
     groceries = categories["Groceries"]["id"]
     dining = categories["Dining Out"]["id"]

@@ -1,6 +1,8 @@
 """Application configuration, sourced from environment variables (.env)."""
 from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Single source of truth for the running app's version — surfaced in the API
@@ -43,6 +45,27 @@ class Settings(BaseSettings):
     # *without* basic auth: an open /api/openapi.json is a complete,
     # machine-readable map of every endpoint and payload shape.
     enable_docs: bool = True
+
+    # IANA zone every server-side "what day is it" financial rule uses (see
+    # app/core/clock.py) — the app runs for one user in Poland, so this
+    # deliberately does NOT follow the container's/database's own OS
+    # timezone (almost always UTC in Docker), nor any browser's. Validated
+    # below at Settings() construction time (app startup, and test import):
+    # a typo or a non-existent zone fails loudly here rather than silently
+    # falling back to UTC deep inside some unrelated request.
+    business_timezone: str = "Europe/Warsaw"
+
+    @field_validator("business_timezone")
+    @classmethod
+    def _validate_business_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(
+                f"AURUM_BUSINESS_TIMEZONE={value!r} is not a known IANA timezone "
+                "(e.g. 'Europe/Warsaw'); refusing to silently fall back to UTC"
+            ) from exc
+        return value
 
     @property
     def database_url(self) -> str:

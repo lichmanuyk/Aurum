@@ -1,9 +1,9 @@
 """Native ledger legs and common validation for every transaction write path."""
-from datetime import date
 from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from app.core.clock import business_today
 from app.core.money import validate_money, validate_ledger_money, adjustment_rule_violation
 from app.models.account import Account
 from app.models.transaction import Transaction
@@ -72,7 +72,7 @@ async def transactions_for_reporting(session, start=None, end=None, transaction_
 async def native_balances(session, as_of=None):
     from collections import defaultdict
     balances = defaultdict(Decimal)
-    rows = await session.scalars(select(Transaction).where(Transaction.date <= (as_of or date.today())))
+    rows = await session.scalars(select(Transaction).where(Transaction.date <= (as_of or business_today())))
     for tx in rows:
         for account_id, amount in native_legs(tx):
             balances[account_id] += amount

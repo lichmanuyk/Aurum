@@ -1,5 +1,4 @@
 """Atomic transfers between a cash account and a tracked asset."""
-from datetime import date
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -7,6 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import business_today
 from app.core.money import require_ledger_money, require_money
 from app.models.account import Account
 from app.models.asset import Asset, AssetValuation
@@ -60,7 +60,7 @@ async def _validate(session: AsyncSession, payload: AssetMovementInput):
     if asset.asset_class == AssetClass.CRYPTO:
         if payload.asset_value_after is not None or payload.quantity is None or payload.price_per_unit is None:
             raise HTTPException(422, "Crypto trades require quantity and unit price, not a manual valuation")
-        if payload.date != date.today():
+        if payload.date != business_today():
             raise HTTPException(422, "Cash-linked crypto trades currently require today's date")
     elif payload.asset_value_after is None or payload.quantity is not None or payload.price_per_unit is not None:
         raise HTTPException(422, "Manual assets require a value after the trade, without crypto quantity")
@@ -103,7 +103,7 @@ async def _crypto_trade(session: AsyncSession, asset: Asset, payload: AssetMovem
     crypto_service._validate_trade_history(holding.transactions)
     transaction.crypto_transaction_id = trade.id
     quantity, _ = crypto_service._compute_position(holding.transactions)
-    await crypto_service._upsert_valuation(session, asset.id, quantity * holding.last_price, date.today())
+    await crypto_service._upsert_valuation(session, asset.id, quantity * holding.last_price, business_today())
 
 
 async def create_movement(session: AsyncSession, payload: AssetMovementInput) -> AssetMovementRead:
@@ -161,7 +161,7 @@ async def update_movement(session: AsyncSession, movement_id: int, payload: Asse
         crypto_service._validate_trade_history(holding.transactions)
         await session.flush()
         quantity, _ = crypto_service._compute_position(holding.transactions)
-        await crypto_service._upsert_valuation(session, asset.id, quantity * holding.last_price, date.today())
+        await crypto_service._upsert_valuation(session, asset.id, quantity * holding.last_price, business_today())
     else:
         valuation = await session.get(AssetValuation, transaction.asset_valuation_id)
         valuation.value = payload.asset_value_after
@@ -193,7 +193,7 @@ async def delete_movement(session: AsyncSession, movement_id: int) -> None:
         await session.flush()
         quantity, _ = crypto_service._compute_position(remaining)
         if holding.last_price is not None:
-            await crypto_service._upsert_valuation(session, asset_id, quantity * holding.last_price, date.today())
+            await crypto_service._upsert_valuation(session, asset_id, quantity * holding.last_price, business_today())
     elif valuation_id is not None:
         valuation = await session.get(AssetValuation, valuation_id)
         if prior is None:

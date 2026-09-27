@@ -20,6 +20,7 @@ from decimal import Decimal, localcontext
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.core.clock import business_today
 from app.models.fx import FXRate
 from app.services.dashboard_service import _resolve_bounds
 from app.services.fx_service import FXConverter
@@ -74,7 +75,7 @@ def _leg_source(rows_by_pair: dict[tuple[str, str, date], FXRate], currency: str
 
 
 async def get_fx_period_overview(session, year: int | None, month: int | None) -> dict:
-    today = date.today()
+    today = business_today()
     if year is not None and (year > today.year or (year == today.year and month is not None and month > today.month)):
         raise HTTPException(422, "Future period is not available yet")
 

@@ -14,6 +14,7 @@ from decimal import Decimal
 from httpx import AsyncClient
 
 from tests.helpers import money, txn_payload as _txn
+from app.core.clock import business_today
 
 
 async def test_bulk_create_transactions(client: AsyncClient, account_id, categories):
@@ -329,13 +330,13 @@ async def test_years_endpoint_spans_earliest_transaction_through_current_year(
     await client.post("/transactions", json=_txn(account_id, category_id=category_id, date="2023-11-20"))
 
     resp = await client.get("/transactions/years")
-    current_year = date.today().year
+    current_year = business_today().year
     assert resp.json() == list(range(2021, current_year + 1))
 
 
 async def test_years_endpoint_with_no_transactions_returns_only_current_year(client: AsyncClient):
     resp = await client.get("/transactions/years")
-    assert resp.json() == [date.today().year]
+    assert resp.json() == [business_today().year]
 
 
 async def test_update_cannot_turn_a_transaction_into_a_transfer_without_a_destination(

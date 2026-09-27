@@ -15,6 +15,7 @@ from app.models.transaction import Transaction
 from app.models.crypto import CryptoTransaction
 from app.models.budget import Budget
 from app.models.goal import Goal
+from app.core.clock import business_today
 from app.services.settings_service import get_or_create_app_settings
 from app.services.fx_service import FXConverter
 
@@ -49,9 +50,9 @@ async def import_plan(session):
         first = await session.scalar(select(func.min(field)))
         if first:
             starts.append(first)
-    start = min(starts, default=date.today())
+    start = min(starts, default=business_today())
     return dict(start_date=max(date(2002,1,2), start-timedelta(days=7)), history_start=start,
-                end_date=date.today(), currencies=sorted(currencies-{'PLN'}), provider='NBP', chunk_days=93)
+                end_date=business_today(), currencies=sorted(currencies-{'PLN'}), provider='NBP', chunk_days=93)
 
 
 def parse_tables(payload, table, currencies, start, end):

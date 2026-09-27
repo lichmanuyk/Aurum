@@ -9,6 +9,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import business_today
 from app.models.enums import TransactionType
 from app.models.transaction import Transaction
 from app.schemas.dashboard import CategoryBreakdownChildItem, CategoryBreakdownItem, DashboardSummary
@@ -28,7 +29,7 @@ def _resolve_bounds(year: int | None, month: int | None) -> tuple[date | None, d
     *current* month/year (or all-time itself), which is exactly where a
     stray future-dated transaction must not leak into a period that's
     supposed to end today (see docs/tasks/dashboard-periods.md)."""
-    today = date.today()
+    today = business_today()
     if year is None:
         return None, today
     if month is None:

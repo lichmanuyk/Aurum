@@ -1,10 +1,10 @@
-from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_reporting_session
+from app.core.clock import business_today
 from app.schemas.dashboard import DashboardSummary
 from app.services.dashboard_service import get_dashboard_summary
 
@@ -25,7 +25,7 @@ async def read_dashboard_summary(
     month: int | None = Query(default=None, ge=1, le=12),
     session: AsyncSession = Depends(get_reporting_session),
 ) -> DashboardSummary:
-    today = date.today()
+    today = business_today()
     if period == "all":
         if year is not None or month is not None:
             raise HTTPException(status_code=422, detail="year/month are not allowed with period=all")

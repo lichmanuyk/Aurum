@@ -26,6 +26,7 @@ from itertools import groupby
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import business_today
 from app.models.account import Account
 from app.models.asset import Asset, AssetValuation
 from app.models.enums import AccountType, AssetClass, CapitalRole, RiskLevel, TransactionType
@@ -170,7 +171,7 @@ async def _capital_role_summary(session: AsyncSession, current_by_asset: dict[in
     fx = await FXConverter.load(session)
     for asset_id, role, cash_flow, currency in roles_result.all():
         totals_value[role] += current_by_asset.get(asset_id, Decimal("0"))
-        totals_flow[role] += fx.convert(cash_flow or Decimal("0"), currency, date_.today())
+        totals_flow[role] += fx.convert(cash_flow or Decimal("0"), currency, business_today())
         counts[role] += 1
 
     return [
@@ -247,7 +248,7 @@ def _resolve_start_date(range_key: str, cash_events: list[tuple[date_, Decimal]]
 
 
 async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWorthSummary:
-    today = date_.today()
+    today = business_today()
     start = today - timedelta(days=RANGE_DAYS[range_key] - 1) if range_key in RANGE_DAYS else None
     points, cash_today, current_by_asset, assets, fx = await stock_series(session, start, today, account_types=CASH_ACCOUNT_TYPES)
     class_totals = defaultdict(Decimal)

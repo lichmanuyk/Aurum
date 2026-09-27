@@ -1,27 +1,42 @@
-import { expect, it } from "vitest";
-import { parseRangeParam, parseYearRangeParam, reportsLinkFor } from "./dateRange";
+import { describe, expect, it } from "vitest";
+import { computeRange } from "./dateRange";
 
-it("builds a reports link carrying the category, preset range and the subcategory rollup flag, without year params for a non-custom preset", () => {
-  expect(reportsLinkFor(42, "this_year", { fromYear: 2020, toYear: 2020 })).toBe(
-    "/reports?category_id=42&range=this_year&include_subcategories=1"
-  );
-});
+describe("computeRange", () => {
+  it("'all' is always ready, with no bound, and never needs a business date", () => {
+    expect(computeRange("all", undefined)).toEqual({ status: "ready" });
+    expect(computeRange("all", "2026-09-27")).toEqual({ status: "ready" });
+  });
 
-it("builds a reports link carrying from_year/to_year only for the custom preset", () => {
-  expect(reportsLinkFor(42, "custom", { fromYear: 2018, toYear: 2021 })).toBe(
-    "/reports?category_id=42&range=custom&include_subcategories=1&from_year=2018&to_year=2021"
-  );
-});
+  it("'this_year' spans Jan 1 of the business date's year through the business date itself", () => {
+    expect(computeRange("this_year", "2026-09-27")).toEqual({
+      status: "ready", startDate: "2026-01-01", endDate: "2026-09-27",
+    });
+  });
 
-it("parses a valid range param and falls back for anything else, same as TransactionsPage's year/month parsing", () => {
-  expect(parseRangeParam("5y", "all")).toBe("5y");
-  expect(parseRangeParam("bogus", "all")).toBe("all");
-  expect(parseRangeParam(null, "this_year")).toBe("this_year");
-});
+  it("'5y' starts on the 1st of the business date's month, 5 years back, through the business date itself", () => {
+    expect(computeRange("5y", "2026-09-27")).toEqual({
+      status: "ready", startDate: "2021-09-01", endDate: "2026-09-27",
+    });
+  });
 
-it("parses a valid positive-integer year param and falls back otherwise", () => {
-  expect(parseYearRangeParam("2019", 2024)).toBe(2019);
-  expect(parseYearRangeParam("not-a-year", 2024)).toBe(2024);
-  expect(parseYearRangeParam("-5", 2024)).toBe(2024);
-  expect(parseYearRangeParam(null, 2024)).toBe(2024);
+  it("'custom' uses the given years verbatim and never needs a business date", () => {
+    expect(computeRange("custom", undefined, { fromYear: 2018, toYear: 2020 })).toEqual({
+      status: "ready", startDate: "2018-01-01", endDate: "2020-12-31",
+    });
+    expect(computeRange("custom", undefined)).toEqual({ status: "ready" });
+  });
+
+  it("'this_year'/'5y' are 'pending' — never a guessed date, never silently 'all' — while the business date hasn't loaded yet", () => {
+    expect(computeRange("this_year", undefined)).toEqual({ status: "pending" });
+    expect(computeRange("5y", undefined)).toEqual({ status: "pending" });
+  });
+
+  it("never shifts a day regardless of which calendar boundary the business date sits on", () => {
+    expect(computeRange("this_year", "2026-01-01")).toEqual({
+      status: "ready", startDate: "2026-01-01", endDate: "2026-01-01",
+    });
+    expect(computeRange("this_year", "2026-12-31")).toEqual({
+      status: "ready", startDate: "2026-01-01", endDate: "2026-12-31",
+    });
+  });
 });

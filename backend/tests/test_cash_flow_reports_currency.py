@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from tests.test_multicurrency import account, rate, tx
+from app.core.clock import business_today
 
 
 async def test_cash_flow_uses_historical_rates_and_respects_currency_param(client, categories):
@@ -22,7 +23,7 @@ async def test_cash_flow_uses_historical_rates_and_respects_currency_param(clien
         await rate(client, day, value=value)
         await rate(client, day, base='USD', value='2')
         await tx(client, eur, date=day, category_id=categories['Groceries']['id'])
-    await rate(client, date.today(), value='9')
+    await rate(client, business_today(), value='9')
     before = (await client.get('/backup/export')).json()
 
     default = (await client.get('/cash-flow', params={'start_date': '2025-01-01', 'end_date': '2025-01-31'})).json()
@@ -49,7 +50,7 @@ async def test_reports_category_spending_and_ranking_respect_currency_param(clie
         await rate(client, day, value=value)
         await rate(client, day, base='USD', value='2')
         await tx(client, eur, date=day, category_id=groceries)
-    await rate(client, date.today(), value='9')
+    await rate(client, business_today(), value='9')
 
     for currency, expected in [('PLN', '900'), ('USD', '450'), ('EUR', '200')]:
         spending = await client.get('/reports/category-spending', params={
@@ -77,7 +78,7 @@ async def test_reports_category_spending_and_ranking_respect_currency_param(clie
 async def test_missing_historical_rate_is_an_explicit_error_not_zero_or_one_to_one(client, categories, path, needs_category):
     await client.patch('/settings', json={'currency': 'PLN'})
     eur = await account(client, 'EUR')
-    await tx(client, eur, date=str(date.today()), category_id=categories['Groceries']['id'])
+    await tx(client, eur, date=str(business_today()), category_id=categories['Groceries']['id'])
     # No FX rate exists for today at all — every one of these must surface
     # the same explicit error, never silently report 0 or an unconverted 1:1.
     params = {'category_id': categories['Groceries']['id']} if needs_category else {}
@@ -104,7 +105,7 @@ async def test_two_same_day_exchanges_keep_their_own_rate_regardless_of_report_c
     from either of them."""
     await client.patch('/settings', json={'currency': 'PLN'})
     usd, pln = await account(client, 'USD'), await account(client, 'PLN')
-    await rate(client, date.today(), base='USD', value='4')
+    await rate(client, business_today(), base='USD', value='4')
     await tx(client, usd, type='income', amount='1000')
     first = await tx(client, usd, type='transfer', transfer_account_id=pln, destination_amount='360')
     second = await tx(client, usd, type='transfer', transfer_account_id=pln, destination_amount='380')
@@ -114,7 +115,7 @@ async def test_two_same_day_exchanges_keep_their_own_rate_regardless_of_report_c
     # income/expense contribute), so this is what a currency switch should
     # visibly move.
     eur = await account(client, 'EUR')
-    await rate(client, date.today(), base='EUR', value='5')
+    await rate(client, business_today(), base='EUR', value='5')
     await tx(client, eur, category_id=categories['Groceries']['id'])
     before_fx_rates = (await client.get('/fx-rates')).json()
 

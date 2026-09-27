@@ -286,6 +286,11 @@ test("period pills and month/year pickers work on a narrow (phone-width) viewpor
 
   const yearPill = page.getByRole("button", { name: "Год", exact: true });
   await expect(yearPill).toBeVisible();
+  // Disabled until the server's business date loads (see
+  // docs/tasks/business-date-timezone.md) — a disabled <button> accepts
+  // neither focus nor a keyboard-triggered click, so this must wait for
+  // that (typically sub-second) instant before it's actually interactive.
+  await expect(yearPill).toBeEnabled();
   await yearPill.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /^\d{4}$/ })).toBeVisible();

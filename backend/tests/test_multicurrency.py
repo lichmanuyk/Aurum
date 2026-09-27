@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from app.services.fx_service import FXConverter
+from app.core.clock import business_today
 
 
 async def account(client, currency):
@@ -20,7 +21,7 @@ async def rate(client, day, base='EUR', quote='PLN', value='4'):
 
 
 async def tx(client, source, **fields):
-    payload = dict(account_id=source, type='expense', amount='100', date=str(date.today()), description='Synthetic')
+    payload = dict(account_id=source, type='expense', amount='100', date=str(business_today()), description='Synthetic')
     payload.update(fields)
     response = await client.post('/transactions', json=payload)
     assert response.status_code == 201, response.text
@@ -56,7 +57,7 @@ async def test_missing_rate_does_not_block_native_data(client):
 
 async def test_same_day_exchanges_keep_actual_amounts_independent_of_daily_fx(client):
     usd, pln = await account(client, 'USD'), await account(client, 'PLN')
-    await rate(client, date.today(), base='USD', value='4.3')
+    await rate(client, business_today(), base='USD', value='4.3')
     official = (await client.get('/fx-rates')).json()
     await tx(client, usd, type='income', amount='300')
     first = await tx(client, usd, type='transfer', transfer_account_id=pln, destination_amount='360')
@@ -74,7 +75,7 @@ async def test_same_day_exchanges_keep_actual_amounts_independent_of_daily_fx(cl
         return backup
 
     await check_amounts()
-    await rate(client, date.today(), base='USD', value='4.5')
+    await rate(client, business_today(), base='USD', value='4.5')
     backup = await check_amounts()
     assert (await client.post('/backup/import', json=backup)).status_code == 200
     await check_amounts()
@@ -86,7 +87,7 @@ async def test_historical_flow_reports_budget_and_override(client, categories):
     category = categories['Groceries']['id']
     await rate(client, '2025-01-03', value='4')
     await rate(client, '2025-01-17', value='4.5')
-    await rate(client, date.today(), value='5')
+    await rate(client, business_today(), value='5')
     await tx(client, eur, date='2025-01-03', category_id=category)
     await tx(client, eur, date='2025-01-17', category_id=category)
     budget = await client.post('/budgets', json={'category_id': category, 'monthly_limit': '900', 'currency': 'PLN'})
@@ -105,7 +106,7 @@ async def test_historical_flow_reports_budget_and_override(client, categories):
 
 
 async def test_stock_revalues_native_balance_and_old_asset(client):
-    today, yesterday = date.today(), date.today() - timedelta(days=1)
+    today, yesterday = business_today(), business_today() - timedelta(days=1)
     eur = await account(client, 'EUR')
     await client.patch('/settings', json={'currency': 'PLN'})
     await rate(client, yesterday, value='4')
@@ -126,7 +127,7 @@ async def test_stock_revalues_native_balance_and_old_asset(client):
 async def test_goal_currency_and_backup_roundtrip(client):
     goal = await client.post('/goals', json={'name': 'Synthetic goal', 'target_amount': '1000', 'currency': 'EUR'})
     assert goal.status_code == 201
-    await rate(client, date.today())
+    await rate(client, business_today())
     eur, pln = await account(client, 'EUR'), await account(client, 'PLN')
     await tx(client, eur, type='transfer', transfer_account_id=pln, destination_amount='431.27')
     exported = (await client.get('/backup/export')).json()
@@ -144,14 +145,14 @@ async def test_goal_currency_and_backup_roundtrip(client):
 
 async def test_recurring_actual_destination_and_precision(client):
     eur, pln = await account(client, 'EUR'), await account(client, 'PLN')
-    r = await client.post('/recurring', json=dict(account_id=eur, transfer_account_id=pln, type='transfer', amount='100', description='Synthetic recurring', frequency='monthly', anchor_date=str(date.today())))
+    r = await client.post('/recurring', json=dict(account_id=eur, transfer_account_id=pln, type='transfer', amount='100', description='Synthetic recurring', frequency='monthly', anchor_date=str(business_today())))
     assert r.status_code == 201, r.text
     url = f"/recurring/{r.json()['id']}/post"
     assert (await client.post(url)).status_code == 422
     assert (await client.post(url, json={'destination_amount': '431.27'})).status_code == 201
     assert Decimal((await client.get('/accounts')).json()[1]['balance']) in (Decimal('-100'), Decimal('431.27'), Decimal(0))
     jpy = await account(client, 'JPY')
-    bad = await client.post('/transactions', json=dict(account_id=jpy, type='expense', amount='1.23', description='Invalid precision', date=str(date.today())))
+    bad = await client.post('/transactions', json=dict(account_id=jpy, type='expense', amount='1.23', description='Invalid precision', date=str(business_today())))
     assert bad.status_code == 422
 
 
@@ -170,7 +171,7 @@ async def test_fx_resolution_policy():
 
 async def test_split_rounding_is_nonnegative_and_conserves_parent():
     fx = FXConverter([], 'PLN')
-    transaction = SimpleNamespace(amount=Decimal('.04'), reporting_amount_override=Decimal('.02'), reporting_currency_override='PLN', date=date.today(), splits=[SimpleNamespace(category_id=i, amount=Decimal('.01')) for i in range(4)])
+    transaction = SimpleNamespace(amount=Decimal('.04'), reporting_amount_override=Decimal('.02'), reporting_currency_override='PLN', date=business_today(), splits=[SimpleNamespace(category_id=i, amount=Decimal('.01')) for i in range(4)])
     values = [v for _,v in fx.splits(transaction)]
     assert sum(values) == Decimal('.02') and min(values) >= 0
 
@@ -185,14 +186,14 @@ async def test_crypto_historical_cost_and_display_switch(client, monkeypatch):
     monkeypatch.setattr(crypto_service, '_fetch_market_data', prices)
     await client.patch('/settings', json={'currency': 'PLN'})
     await rate(client, '2025-01-01', value='4')
-    await rate(client, date.today(), value='5')
+    await rate(client, business_today(), value='5')
     holding = await client.post('/crypto/holdings', json={'coingecko_id': 'bitcoin', 'symbol': 'btc', 'name': 'Synthetic BTC', 'quantity': '2', 'price_per_unit': '100', 'quote_currency': 'EUR', 'date': '2025-01-01', 'network': 'Bitcoin'})
     assert holding.status_code == 201, holding.text
     body = holding.json()
     assert Decimal(body['cost_basis']) == 800
     assert Decimal(body['value']) == 1500
     assert body['quote_currency'] == 'EUR' and calls == ['eur']
-    sold = await client.post(f"/crypto/holdings/{body['asset_id']}/transactions", json={'type': 'sell', 'quantity': '1', 'price_per_unit': '150', 'quote_currency': 'EUR', 'date': str(date.today())})
+    sold = await client.post(f"/crypto/holdings/{body['asset_id']}/transactions", json={'type': 'sell', 'quantity': '1', 'price_per_unit': '150', 'quote_currency': 'EUR', 'date': str(business_today())})
     assert sold.status_code == 201
     assert Decimal(sold.json()['cost_basis']) == 400
     await client.patch('/settings', json={'currency': 'EUR'})
@@ -213,7 +214,7 @@ async def test_crypto_missing_fx_preserves_native_write(client, monkeypatch):
     from tests.test_crypto import _point, _fake_fetch
     monkeypatch.setattr(crypto_service, '_fetch_market_data', _fake_fetch({'bitcoin': _point('150')}))
     await client.patch('/settings', json={'currency': 'PLN'})
-    result = await client.post('/crypto/holdings', json={'coingecko_id': 'bitcoin', 'symbol': 'btc', 'name': 'Synthetic BTC', 'quantity': '1', 'price_per_unit': '100', 'quote_currency': 'EUR', 'date': str(date.today())})
+    result = await client.post('/crypto/holdings', json={'coingecko_id': 'bitcoin', 'symbol': 'btc', 'name': 'Synthetic BTC', 'quantity': '1', 'price_per_unit': '100', 'quote_currency': 'EUR', 'date': str(business_today())})
     assert result.status_code == 201, result.text
     assert result.json()['valuation_error']['code'] == 'FX_RATE_MISSING'
     assert result.json()['cost_basis'] is None
@@ -239,7 +240,7 @@ async def test_v1_unresolved_transfer_survives_backup_without_invented_amount(cl
 async def test_reports_splits_and_budget_agree(client, categories):
     eur = await account(client, 'EUR')
     await client.patch('/settings', json={'currency': 'PLN'})
-    today = date.today()
+    today = business_today()
     await rate(client, today, value='4.3127')
     parent = categories['Groceries']['id']
     child = (await client.post('/categories', json={'name': 'Synthetic child', 'kind': 'expense', 'color': '#123456', 'parent_id': parent})).json()['id']
@@ -258,7 +259,7 @@ async def test_eight_year_stock_history_batches_queries(client, test_sessionmake
     from time import perf_counter
     eur = await account(client, 'EUR')
     await client.patch('/settings', json={'currency': 'PLN'})
-    start = date.today() - timedelta(days=2920)
+    start = business_today() - timedelta(days=2920)
     async with test_sessionmaker() as session:
         session.add_all(FXRate(base_currency='EUR', quote_currency='PLN', rate_date=start + timedelta(days=i), rate=Decimal('4'), source='synthetic') for i in range(2921))
         session.add_all(Transaction(account_id=eur, type=TransactionType.INCOME, amount=Decimal('1'), description='Synthetic load test', date=start + timedelta(days=i % 2921)) for i in range(12000))
@@ -289,12 +290,12 @@ async def test_fixed_budget_currencies_do_not_require_unrelated_fx(client, categ
         assert (await client.post('/budgets', json={'category_id': category, 'currency': currency, 'monthly_limit': '100'})).status_code == 201
     await tx(client, eur, amount='10', category_id=groceries)
     await tx(client, pln, amount='20', category_id=other)
-    result = await client.get('/budgets/status', params={'year': date.today().year, 'month': date.today().month})
+    result = await client.get('/budgets/status', params={'year': business_today().year, 'month': business_today().month})
     assert result.status_code == 200, result.text
     assert {row['currency']: Decimal(row['spent']) for row in result.json()['items']} == {'EUR': 10, 'PLN': 20}
 
 
 async def test_split_precision_follows_native_currency(client, categories):
     jpy = await account(client, 'JPY')
-    result = await client.post('/transactions', json={'account_id': jpy, 'type': 'expense', 'amount': '1', 'date': str(date.today()), 'description': 'Invalid fractional yen', 'splits': [{'category_id': categories['Groceries']['id'], 'amount': '0.5'}, {'category_id': categories['Groceries']['id'], 'amount': '0.5'}]})
+    result = await client.post('/transactions', json={'account_id': jpy, 'type': 'expense', 'amount': '1', 'date': str(business_today()), 'description': 'Invalid fractional yen', 'splits': [{'category_id': categories['Groceries']['id'], 'amount': '0.5'}, {'category_id': categories['Groceries']['id'], 'amount': '0.5'}]})
     assert result.status_code == 422

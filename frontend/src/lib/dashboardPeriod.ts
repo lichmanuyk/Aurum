@@ -1,3 +1,5 @@
+import { parseBusinessDate } from "@/lib/businessDate";
+
 /** Dashboard's own period model — month-granular, unlike CashFlow/Reports'
  * whole-year RangePreset in dateRange.ts. `year: null` means "all time";
  * `month: null` means "every month of `year`" (only meaningful once `year`
@@ -12,10 +14,13 @@ export interface DashboardPeriod {
 /** How many months of `year` should ever be offered/counted — every past
  * year has all 12; the current year stops at the current month, so a
  * future month is never offered by the picker nor silently averaged in as
- * a zero. */
-export function visibleMonthCount(year: number): number {
-  const now = new Date();
-  return year === now.getFullYear() ? now.getMonth() + 1 : 12;
+ * a zero. `businessDate` is the server's own current day (see
+ * docs/tasks/business-date-timezone.md, useBusinessDate()) — never
+ * `new Date()`: a browser in a different timezone than Europe/Warsaw could
+ * otherwise offer (or hide) the current month a day early/late. */
+export function visibleMonthCount(year: number, businessDate: string): number {
+  const today = parseBusinessDate(businessDate);
+  return year === today.year ? today.month : 12;
 }
 
 /** Builds a "/transactions?..." link carrying the exact same period a

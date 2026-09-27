@@ -1,5 +1,6 @@
 import { MoneyError } from "@/components/ui/MoneyError";
 import { useState } from "react";
+import { BusinessDateNotice } from "@/components/layout/BusinessDateNotice";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { PillSelector } from "@/components/layout/PillSelector";
@@ -8,8 +9,10 @@ import { StatCard } from "@/components/dashboard/StatCard";
 import { SpendingByCategoryCard } from "@/components/dashboard/SpendingByCategoryCard";
 import { RecentTransactionsCard } from "@/components/dashboard/RecentTransactionsCard";
 import { AlertBanner } from "@/components/insights/AlertBanner";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useDashboardSummary } from "@/hooks/useDashboard";
 import { useTransactionYears } from "@/hooks/useTransactions";
+import { businessDateYear } from "@/lib/businessDate";
 import { visibleMonthCount } from "@/lib/dashboardPeriod";
 import { formatCurrency, formatSignedCurrency } from "@/lib/format";
 import { useTranslation } from "@/lib/i18n";
@@ -29,7 +32,13 @@ type PeriodMode = "all" | "year";
 
 export function DashboardPage() {
   const { t } = useTranslation();
-  const now = new Date();
+  // The server's business date (see docs/tasks/business-date-timezone.md),
+  // not the browser's own `new Date()` — everything below that means "the
+  // current year" (switching into "Год" mode, capping the month picker,
+  // the year picker's own fallback before `years` loads) uses this
+  // instead. Never a browser fallback: "Год" is disabled below until this
+  // is actually available (see MODE_OPTIONS' disabledValues).
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   // Every fresh open starts on "all time" (year: null) — see
   // docs/tasks/dashboard-periods.md. Unlike TransactionsPage, this state is
   // deliberately NOT read from the URL: the Dashboard always starts here,
@@ -48,10 +57,13 @@ export function DashboardPage() {
     if (value === "all") {
       setYear(null);
       setMonth(null);
-    } else {
+    } else if (businessDate) {
       // Picking "Год" for the first time lands on the whole year (every
-      // month) — narrowing to one specific month is a further, separate step.
-      setYear(now.getFullYear());
+      // month) — narrowing to one specific month is a further, separate
+      // step. The pill itself is disabled while !businessDate (see
+      // MODE_OPTIONS' disabledValues below), so this branch is the only
+      // reachable path — no guessed year, ever.
+      setYear(businessDateYear(businessDate));
       setMonth(null);
     }
   }
@@ -61,8 +73,11 @@ export function DashboardPage() {
     // A month valid in the old year can be in the future for the new one
     // (e.g. November while viewing last year, then switching to this
     // year before November) — falls back to "every month" rather than
-    // silently keeping a now-invalid selection.
-    setMonth((current) => (current !== null && current > visibleMonthCount(newYear) ? null : current));
+    // silently keeping a now-invalid selection. Always reachable with a
+    // real businessDate: the year picker itself only renders once
+    // year !== null, which itself only happens through handleModeChange
+    // above, already gated on businessDate.
+    setMonth((current) => (current !== null && businessDate && current > visibleMonthCount(newYear, businessDate) ? null : current));
   }
 
   const { data, isLoading, isError, error } = useDashboardSummary(year, month);
@@ -74,13 +89,27 @@ export function DashboardPage() {
       <AlertBanner excludeKeys={["risky_allocation_exceeded"]} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <PillSelector options={MODE_OPTIONS} value={mode} onChange={handleModeChange} />
-        {year !== null && (
+        <PillSelector
+          options={MODE_OPTIONS}
+          value={mode}
+          onChange={handleModeChange}
+          disabledValues={businessDate ? [] : ["year"]}
+        />
+        {/* Explains the disabled "Год" pill above while businessDate is
+            still loading (or failed) — hidden the moment it's ready. */}
+        {!businessDate && <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} />}
+        {/* "year !== null" only ever becomes true through handleModeChange
+            above, already gated on businessDate — so businessDate is
+            guaranteed here too; the `businessDate &&` is defense in depth,
+            not a real fallback path (see useBusinessDate's own docstring:
+            `data` never reverts to undefined once loaded, even if a later
+            poll fails). */}
+        {year !== null && businessDate && (
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="min-w-0 flex-1">
-              <MonthSelector month={month} onChange={setMonth} maxMonth={visibleMonthCount(year)} allowAll />
+              <MonthSelector month={month} onChange={setMonth} maxMonth={visibleMonthCount(year, businessDate)} allowAll />
             </div>
-            <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={handleYearChange} />
+            <YearSelector years={years ?? [businessDateYear(businessDate)]} year={year} onChange={handleYearChange} />
           </div>
         )}
       </div>

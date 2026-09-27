@@ -12,11 +12,12 @@ import pytest
 
 from tests.helpers import money, txn_payload
 from tests.test_recurring import template
+from app.core.clock import business_today
 
 
 async def asset(client, **overrides):
     payload = dict(name="Synthetic property", asset_class="real_estate", currency="USD", value="100000",
-                    as_of_date=str(date.today()))
+                    as_of_date=str(business_today()))
     payload.update(overrides)
     response = await client.post("/assets", json=payload)
     assert response.status_code == 201, response.text
@@ -203,7 +204,7 @@ async def test_report_period_bounds_and_pagination(client, account_id):
         await client.post("/transactions", json=txn_payload(
             account_id, expense_asset_id=a["id"], amount=f"{10 + i}.00", date=day, description=f"Bill {i}"
         ))
-    tomorrow = str(date.today() + timedelta(days=1))
+    tomorrow = str(business_today() + timedelta(days=1))
     await client.post("/transactions", json=txn_payload(
         account_id, expense_asset_id=a["id"], amount="999.00", date=tomorrow, description="Future bill"
     ))
@@ -286,14 +287,14 @@ async def test_template_link_rejected_for_non_expense_and_crypto_asset(client, a
     a = await asset(client)
     rejected = await client.post("/recurring", json=dict(
         account_id=account_id, type="income", amount="10", description="Synthetic income",
-        frequency="monthly", anchor_date=str(date.today()), expense_asset_id=a["id"],
+        frequency="monthly", anchor_date=str(business_today()), expense_asset_id=a["id"],
     ))
     assert rejected.status_code == 400, rejected.text
 
     crypto_asset = await asset(client, asset_class="crypto", name="Synthetic coin 2")
     rejected_crypto = await client.post("/recurring", json=dict(
         account_id=account_id, type="expense", amount="10", description="Synthetic crypto-linked bill",
-        frequency="monthly", anchor_date=str(date.today()), expense_asset_id=crypto_asset["id"],
+        frequency="monthly", anchor_date=str(business_today()), expense_asset_id=crypto_asset["id"],
     ))
     assert rejected_crypto.status_code == 400, rejected_crypto.text
     assert (await client.get("/recurring")).json() == []

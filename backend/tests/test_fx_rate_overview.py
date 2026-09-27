@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from tests.test_multicurrency import account, tx
+from app.core.clock import business_today
 
 
 async def nbp_rate(client, currency, day, value, table="A", no="1/A/NBP/2026"):
@@ -21,7 +22,7 @@ async def nbp_rate(client, currency, day, value, table="A", no="1/A/NBP/2026"):
 
 async def test_overview_shows_all_four_currencies_with_correct_direction_date_and_source(client):
     await client.patch("/settings", json={"currency": "PLN"})
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.1000")
     await nbp_rate(client, "EUR", today, "4.5000")
     await nbp_rate(client, "BYN", today, "1.2000", table="B")
@@ -42,7 +43,7 @@ async def test_overview_shows_all_four_currencies_with_correct_direction_date_an
 
 async def test_missing_currency_is_explicit_never_zero_or_one_to_one(client):
     await client.patch("/settings", json={"currency": "PLN"})
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.1000")
     # BYN and RUB are simply never fetched (e.g. NBP outage) — no row at all.
 
@@ -58,7 +59,7 @@ async def test_missing_currency_is_explicit_never_zero_or_one_to_one(client):
 
 async def test_manual_rate_is_never_shown_as_an_official_quote(client):
     await client.patch("/settings", json={"currency": "PLN"})
-    today = date.today()
+    today = business_today()
     # A manually typed rate exists (e.g. entered once in Settings) — real
     # enough for ordinary transaction conversion, but not an NBP quote.
     manual = await client.post("/fx-rates/bulk", json={"items": [dict(
@@ -81,7 +82,7 @@ async def test_manual_rate_is_never_shown_as_an_official_quote(client):
 
 async def test_weekend_or_holiday_gap_reuses_the_last_publication_without_a_false_error(client):
     await client.patch("/settings", json={"currency": "PLN"})
-    published = date.today() - timedelta(days=2)
+    published = business_today() - timedelta(days=2)
     await nbp_rate(client, "BYN", published, "1.2500", table="B")
 
     item = next(i for i in (await client.get("/fx-rates/overview")).json()["items"] if i["currency"] == "BYN")
@@ -91,7 +92,7 @@ async def test_weekend_or_holiday_gap_reuses_the_last_publication_without_a_fals
 
 async def test_overview_never_writes_fx_rates_or_touches_capital(client):
     await client.patch("/settings", json={"currency": "PLN"})
-    today = date.today()
+    today = business_today()
     await nbp_rate(client, "USD", today, "4.1000")
     usd_account, pln_account = await account(client, "USD"), await account(client, "PLN")
     await tx(client, usd_account, type="income", amount="1000", date=str(today))
@@ -121,7 +122,7 @@ async def test_overview_covers_a_currency_the_user_holds_no_account_in(client):
     await client.patch("/settings", json={"currency": "PLN"})
     accounts = (await client.get("/accounts")).json()
     assert all(row["currency"] != "RUB" for row in accounts)
-    await nbp_rate(client, "RUB", date.today(), "0.0450", table="B")
+    await nbp_rate(client, "RUB", business_today(), "0.0450", table="B")
 
     item = next(i for i in (await client.get("/fx-rates/overview")).json()["items"] if i["currency"] == "RUB")
     assert Decimal(item["rate"]) == Decimal("0.0450")

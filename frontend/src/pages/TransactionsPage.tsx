@@ -1,20 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { FileUp, Plus, Search, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
+import { BusinessDateNotice } from "@/components/layout/BusinessDateNotice";
 import { MonthSelector } from "@/components/layout/MonthSelector";
 import { YearSelector } from "@/components/layout/YearSelector";
 import { PillSelector } from "@/components/layout/PillSelector";
 import { TransactionsTable } from "@/components/transactions/TransactionsTable";
 import { TransactionFormModal } from "@/components/transactions/TransactionFormModal";
+import { useBusinessDate } from "@/hooks/useBusinessDate";
 import { useTransactions, useDeleteTransaction, useTransactionYears } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useCategories";
 import { useTags } from "@/hooks/useTags";
 import type { TransactionSort } from "@/api/transactions";
 import { useTranslation } from "@/lib/i18n";
 import { buildHierarchicalCategories, translateCategoryName } from "@/lib/categoryLabels";
+import { businessDateMonth, businessDateYear } from "@/lib/businessDate";
 import { parseDashboardPeriodParams, parseEndDateParam, visibleMonthCount } from "@/lib/dashboardPeriod";
 import type { Transaction, TransactionType } from "@/types";
 
@@ -22,22 +25,57 @@ const PAGE_SIZE = 20;
 
 type PeriodMode = "all" | "year";
 
+/** A bare `/transactions` visit (no deep-linked period at all) lands on
+ * "the current month" — which, unlike Dashboard's own default ("Всё
+ * время", never date-dependent), needs the server's business date (see
+ * docs/tasks/business-date-timezone.md) to resolve at all. `"pending"`
+ * means exactly that: not yet resolved, no query fired, no browser-guessed
+ * year/month rendered — as opposed to a deep link (year present, or
+ * `period=all`) or a user's own click, which resolve to `"ready"`
+ * immediately and never need a business date in the first place. */
+type PeriodState =
+  | { status: "pending" }
+  | { status: "ready"; year: number | null; month: number | null };
+
 export function TransactionsPage() {
   const { t, language } = useTranslation();
-  const now = new Date();
+  // The server's business date (see docs/tasks/business-date-timezone.md),
+  // not the browser's own `new Date()`.
+  const { businessDate, isError: businessDateError, refetch: retryBusinessDate } = useBusinessDate();
   // Deep-linked from the Dashboard's "All transactions" link, which carries
   // the period the user was already looking at (?year=&month=, or
   // ?period=all, or ?year= alone for "every month of that year" — see
   // lib/dashboardPeriod.ts) so this page doesn't reset back to the current
   // month. A bare /transactions (e.g. from the nav sidebar) still falls
-  // back to the current month exactly as before.
+  // back to the current month exactly as before — just resolved from the
+  // real business date instead of a browser-guessed one (see PeriodState
+  // above and the effect below).
   const [searchParams] = useSearchParams();
-  const [year, setYear] = useState<number | null>(
-    () => parseDashboardPeriodParams(searchParams, { year: now.getFullYear(), month: now.getMonth() + 1 }).year
-  );
-  const [month, setMonth] = useState<number | null>(
-    () => parseDashboardPeriodParams(searchParams, { year: now.getFullYear(), month: now.getMonth() + 1 }).month
-  );
+  const hasExplicitPeriodInUrl = useRef(
+    searchParams.get("period") === "all" || searchParams.get("year") !== null
+  ).current;
+  const [period, setPeriod] = useState<PeriodState>(() => {
+    if (!hasExplicitPeriodInUrl) return { status: "pending" };
+    // The `{ year: 0, month: 0 }` fallback below is never actually read:
+    // `hasExplicitPeriodInUrl` guarantees parseDashboardPeriodParams finds
+    // either `period=all` or a real `year` param and returns straight from
+    // that branch — see its own implementation in lib/dashboardPeriod.ts.
+    const parsed = parseDashboardPeriodParams(searchParams, { year: 0, month: 0 });
+    return { status: "ready", year: parsed.year, month: parsed.month };
+  });
+  // Resolves the pending state above to the real current month/year the
+  // first time the business date loads — at most once, since `period` is
+  // no longer `"pending"` afterward (the guard below then always short-
+  // circuits). A user who clicked "Всё время"/"Год" (or jumped to a
+  // specific month from search) in the meantime has already moved `period`
+  // to `"ready"` themselves, so this effect finds nothing left to resolve.
+  useEffect(() => {
+    if (period.status !== "pending" || !businessDate) return;
+    setPeriod({ status: "ready", year: businessDateYear(businessDate), month: businessDateMonth(businessDate) });
+  }, [period.status, businessDate]);
+  const boundsReady = period.status === "ready";
+  const year = boundsReady ? period.year : null;
+  const month = boundsReady ? period.month : null;
   // The server-resolved boundary a Dashboard link carried (see
   // lib/dashboardPeriod.ts) — reused verbatim, never recomputed from the
   // browser's own clock (see docs/tasks/dashboard-periods.md's review
@@ -89,7 +127,12 @@ export function TransactionsPage() {
     sort,
     page,
     page_size: PAGE_SIZE,
-  });
+    // A search already spans every period (see the two `isSearching ?
+    // undefined` casts above) and needs no business date at all — fires
+    // regardless of `boundsReady`. Otherwise, waits for the pending bare-
+    // visit resolution above rather than ever running with a browser-
+    // guessed year/month.
+  }, { enabled: isSearching || boundsReady });
   const deleteTransaction = useDeleteTransaction();
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
@@ -123,35 +166,49 @@ export function TransactionsPage() {
 
   /** Leaves search mode and switches the period selectors to whichever
    * month the picked transaction is in, so the user lands back in the normal
-   * browsing view with it in context instead of a flat result list. */
+   * browsing view with it in context instead of a flat result list. Parses
+   * `transaction.date` as local midnight (no `Z`/offset) purely to split
+   * an already-known date-only string back into its own year/month
+   * components — both the parse and the read below are in the same
+   * (browser-local) frame, so unlike a "what day is it *now*" default this
+   * never round-trips through UTC and needs no business date at all. */
   function handleJumpToMonth(transaction: Transaction) {
     const date = new Date(`${transaction.date}T00:00:00`);
-    setYear(date.getFullYear());
-    setMonth(date.getMonth() + 1);
+    setPeriod({ status: "ready", year: date.getFullYear(), month: date.getMonth() + 1 });
     setEndDate(null);
     setSearchInput("");
     setSearch("");
     setPage(1);
   }
 
-  const periodMode: PeriodMode = year === null ? "all" : "year";
+  const periodMode: PeriodMode = boundsReady && year === null ? "all" : "year";
   const PERIOD_MODE_OPTIONS: Array<{ value: PeriodMode; label: string }> = [
     { value: "all", label: t("reports.rangeAll") },
     { value: "year", label: t("dashboard.periodYear") },
   ];
 
   function handlePeriodModeChange(value: PeriodMode) {
-    setYear(value === "all" ? null : now.getFullYear());
-    setMonth(null);
+    if (value === "all") {
+      setPeriod({ status: "ready", year: null, month: null });
+    } else if (businessDate) {
+      // The "Год" pill is disabled below while !businessDate, so this is
+      // the only reachable branch when switching into it — never a
+      // browser-guessed year.
+      setPeriod({ status: "ready", year: businessDateYear(businessDate), month: null });
+    }
     setEndDate(null); // the linked boundary was for the old period, not this one
     setPage(1);
   }
 
   function handleYearChange(newYear: number) {
-    setYear(newYear);
+    if (!businessDate) return; // the year picker only ever renders once boundsReady, see below
     // Same "still on a now-future month" guard as the Dashboard — falls
     // back to "every month" instead of keeping an invalid selection.
-    setMonth((current) => (current !== null && current > visibleMonthCount(newYear) ? null : current));
+    setPeriod({
+      status: "ready",
+      year: newYear,
+      month: month !== null && month > visibleMonthCount(newYear, businessDate) ? null : month,
+    });
     setEndDate(null);
     setPage(1);
   }
@@ -160,22 +217,37 @@ export function TransactionsPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className={`flex min-w-0 flex-1 items-center gap-3 ${isSearching ? "pointer-events-none opacity-50" : ""}`}>
-          <PillSelector options={PERIOD_MODE_OPTIONS} value={periodMode} onChange={handlePeriodModeChange} />
-          {year !== null && (
+          <PillSelector
+            options={PERIOD_MODE_OPTIONS}
+            value={periodMode}
+            onChange={handlePeriodModeChange}
+            disabledValues={businessDate ? [] : ["year"]}
+          />
+          {/* Explains the disabled "Год" pill / the pending bare-visit
+              default above while businessDate is still loading (or
+              failed) — hidden the moment it's ready. */}
+          {!businessDate && <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} />}
+          {/* `year !== null` (a specific year selected, not "Всё время")
+              only ever happens once boundsReady — either through
+              handlePeriodModeChange/handleYearChange above (both gated on
+              businessDate) or the pending-resolution effect, itself gated
+              the same way — so `businessDate &&` here is defense in depth,
+              not a real fallback path. */}
+          {boundsReady && year !== null && businessDate && (
             <>
               <div className="min-w-0 flex-1">
                 <MonthSelector
                   month={month}
-                  maxMonth={visibleMonthCount(year)}
+                  maxMonth={visibleMonthCount(year, businessDate)}
                   allowAll
                   onChange={(value) => {
-                    setMonth(value);
+                    setPeriod({ status: "ready", year, month: value });
                     setEndDate(null);
                     setPage(1);
                   }}
                 />
               </div>
-              <YearSelector years={years ?? [now.getFullYear()]} year={year} onChange={handleYearChange} />
+              <YearSelector years={years ?? [businessDateYear(businessDate)]} year={year} onChange={handleYearChange} />
             </>
           )}
         </div>
@@ -301,7 +373,17 @@ export function TransactionsPage() {
         </CardHeader>
         <CardContent>
           {isError && <p className="py-6 text-center text-sm text-danger">{t("transactions.failedToLoad")}</p>}
-          {isLoading ? (
+          {/* Not "isLoading" for this branch — react-query's `isLoading`
+              is false for a query that's disabled and has never fetched
+              (see the `enabled: isSearching || boundsReady` above), which
+              would otherwise fall through to the table below with an
+              empty `items` array: indistinguishable from "no transactions
+              in this period" rather than "not loaded yet". */}
+          {!isSearching && !boundsReady ? (
+            <div className="py-12 text-center">
+              <BusinessDateNotice isError={businessDateError} retry={retryBusinessDate} />
+            </div>
+          ) : isLoading ? (
             <p className="py-12 text-center text-sm text-text-muted">{t("common.loading")}</p>
           ) : (
             <TransactionsTable

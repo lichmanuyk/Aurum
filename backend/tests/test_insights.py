@@ -8,9 +8,10 @@ from datetime import date, timedelta
 from httpx import AsyncClient
 
 from tests.helpers import txn_payload as _txn
+from app.core.clock import business_today
 
-STALE_DATE = (date.today() - timedelta(days=400)).isoformat()
-RECENT_DATE = date.today().isoformat()
+STALE_DATE = (business_today() - timedelta(days=400)).isoformat()
+RECENT_DATE = business_today().isoformat()
 
 
 async def _alert_keys(client: AsyncClient) -> set[str]:
