@@ -16,6 +16,48 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKUPS = Path.home() / 'Library/Mobile Documents/com~apple~CloudDocs/Aurum Backups'
 NAME = re.compile(r'aurum-auto-(\d{8}T\d{12}Z)\.json')
 
+# Every top-level *list* section of a backup payload — compared order-
+# insensitively below (see _canonical_multiset): a plain `select()` with no
+# ORDER BY makes no ordering guarantee, so two exports of the exact same
+# rows can legitimately come back in a different physical order with
+# nothing actually different (backup_service.py's build_backup now orders
+# every one of these explicitly, but an *older* file predates that fix and
+# a straight list `!=` would still report a false mismatch against it
+# purely from that). `app_settings` is a single dict, not a list, and
+# stays a plain equality check below, same as before.
+LIST_SECTIONS = (
+    'accounts', 'categories', 'tags', 'transactions', 'transaction_splits', 'assets',
+    'asset_valuations', 'crypto_portfolios', 'crypto_holdings', 'crypto_transactions',
+    'budgets', 'goals', 'goal_contributions', 'recurring_transactions', 'fx_rates',
+)
+
+
+def _canonical_row(row):
+    """One row's own full, JSON-comparable content — every field's real
+    value is kept (including a nullable one like expense_asset_id), so a
+    genuine per-field change is never hidden by this. `tag_ids` (a many-to-
+    many set whose own order was never a recorded fact — see
+    backup_service.py's build_backup) is sorted the same way on both sides
+    here, so an older file's own unsorted tag_ids never registers as a
+    difference purely from that; a real duplicate or missing tag id is
+    untouched by sorting and still changes the result."""
+    if isinstance(row, dict) and isinstance(row.get('tag_ids'), list):
+        row = {**row, 'tag_ids': sorted(row['tag_ids'])}
+    return json.dumps(row, sort_keys=True, default=str)
+
+
+def _canonical_multiset(rows):
+    """Order-independent, but never collapses a real difference: turning
+    this into a set or a dict keyed by id would silently hide a duplicated
+    or an extra/missing row (two entries sharing one id, or a genuinely
+    different total count). Sorting the *list* of each row's own full
+    canonical string instead keeps every entry (including duplicates) and
+    still puts two exports of the same rows in the same order regardless of
+    how the database happened to return them — a real cardinality or
+    per-field content change is still exactly what makes the two sorted
+    lists compare unequal."""
+    return sorted(_canonical_row(row) for row in rows)
+
 
 def latest_backup(now=None):
     now = now or datetime.now(timezone.utc)
@@ -73,7 +115,19 @@ def compare(original, restored):
     # A supported older file is re-exported using the current format version.
     original = {key: value for key, value in original.items() if key not in ('exported_at', 'aurum_backup_version')}
     restored = {key: value for key, value in restored.items() if key not in ('exported_at', 'aurum_backup_version')}
-    mismatches = [key for key in original.keys() | restored.keys() if original.get(key) != restored.get(key)]
+    mismatches = []
+    for key in original.keys() | restored.keys():
+        o, r = original.get(key), restored.get(key)
+        if key in LIST_SECTIONS and isinstance(o, list) and isinstance(r, list):
+            # Order-insensitive: see _canonical_multiset above. Falls
+            # through to the plain equality below for anything that isn't
+            # actually a list on both sides (e.g. a malformed file), so
+            # that mismatch is still caught, just not silently miscompared
+            # as if it were orderable.
+            if _canonical_multiset(o) != _canonical_multiset(r):
+                mismatches.append(key)
+        elif o != r:
+            mismatches.append(key)
     if mismatches:
         raise RuntimeError('Restored data differs in: ' + ', '.join(sorted(mismatches)))
 

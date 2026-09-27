@@ -59,24 +59,46 @@ BACKUP_FORMAT_VERSION = 10
 
 
 async def build_backup(session: AsyncSession) -> BackupPayload:
-    accounts = (await session.execute(select(Account))).scalars().all()
-    categories = (await session.execute(select(Category))).scalars().all()
-    tags = (await session.execute(select(Tag))).scalars().all()
-    transactions = (await session.execute(select(Transaction).options(selectinload(Transaction.tags)))).scalars().all()
-    transaction_splits = (await session.execute(select(TransactionSplit))).scalars().all()
-    assets = (await session.execute(select(Asset))).scalars().all()
-    valuations = (await session.execute(select(AssetValuation))).scalars().all()
-    crypto_portfolios = (await session.execute(select(CryptoPortfolio))).scalars().all()
-    crypto_holdings = (await session.execute(select(CryptoHolding))).scalars().all()
-    crypto_transactions = (await session.execute(select(CryptoTransaction))).scalars().all()
-    budgets = (await session.execute(select(Budget))).scalars().all()
-    goals = (await session.execute(select(Goal))).scalars().all()
-    goal_contributions = (await session.execute(select(GoalContribution))).scalars().all()
-    recurring_transactions = (await session.execute(select(RecurringTransaction))).scalars().all()
+    # Every collection below is explicitly ORDER BY'd — Postgres makes no
+    # ordering guarantee for a plain `select()` with none, so two exports of
+    # the *same* rows (e.g. before a backup and again right after restoring
+    # it) could legitimately come back in a different physical order with
+    # no data actually having changed. Without this, a naive list
+    # comparison (see scripts/check_backup_restore.py's own compare(), which
+    # is now also order-insensitive as a second, independent safeguard)
+    # would report a false mismatch on reordering alone. Ordered by each
+    # table's own real primary key — `id` for every table that has one,
+    # `CryptoHolding`'s own `asset_id` (its actual PK, see models/crypto.py)
+    # where it doesn't, and `FXRate`'s natural unique business key
+    # (base_currency, quote_currency, rate_date — see models/fx.py's
+    # uq_fx_pair_date) rather than its surrogate `id`, since that's the
+    # real-world identity a rate is keyed by.
+    accounts = (await session.execute(select(Account).order_by(Account.id))).scalars().all()
+    categories = (await session.execute(select(Category).order_by(Category.id))).scalars().all()
+    tags = (await session.execute(select(Tag).order_by(Tag.id))).scalars().all()
+    transactions = (await session.execute(
+        select(Transaction).options(selectinload(Transaction.tags)).order_by(Transaction.id)
+    )).scalars().all()
+    transaction_splits = (await session.execute(select(TransactionSplit).order_by(TransactionSplit.id))).scalars().all()
+    assets = (await session.execute(select(Asset).order_by(Asset.id))).scalars().all()
+    valuations = (await session.execute(select(AssetValuation).order_by(AssetValuation.id))).scalars().all()
+    crypto_portfolios = (await session.execute(select(CryptoPortfolio).order_by(CryptoPortfolio.id))).scalars().all()
+    crypto_holdings = (await session.execute(select(CryptoHolding).order_by(CryptoHolding.asset_id))).scalars().all()
+    crypto_transactions = (await session.execute(select(CryptoTransaction).order_by(CryptoTransaction.id))).scalars().all()
+    budgets = (await session.execute(select(Budget).order_by(Budget.id))).scalars().all()
+    goals = (await session.execute(select(Goal).order_by(Goal.id))).scalars().all()
+    goal_contributions = (await session.execute(select(GoalContribution).order_by(GoalContribution.id))).scalars().all()
+    recurring_transactions = (await session.execute(
+        select(RecurringTransaction).order_by(RecurringTransaction.id)
+    )).scalars().all()
     app_settings = await session.get(AppSettings, 1)
 
     return BackupPayload(
-        fx_rates=[FXRateRead.model_validate(r) for r in (await session.scalars(select(FXRate))).all()],
+        fx_rates=[
+            FXRateRead.model_validate(r) for r in (await session.scalars(
+                select(FXRate).order_by(FXRate.base_currency, FXRate.quote_currency, FXRate.rate_date)
+            )).all()
+        ],
         aurum_backup_version=BACKUP_FORMAT_VERSION,
         exported_at=datetime.now(timezone.utc),
         app_version=APP_VERSION,
@@ -85,7 +107,13 @@ async def build_backup(session: AsyncSession) -> BackupPayload:
         tags=[TagBackup.model_validate(row) for row in tags],
         transactions=[
             TransactionBackup.model_validate(row, from_attributes=True).model_copy(
-                update={"tag_ids": [tag.id for tag in row.tags]}
+                # Sorted, not just however the ORM happened to load the
+                # many-to-many `tags` collection (no order_by on that
+                # relationship — see models/tag.py) — a tag *set*'s own
+                # order was never a recorded fact, so two otherwise-
+                # identical exports must agree on one canonical order for
+                # it too, not just for the top-level row collections above.
+                update={"tag_ids": sorted(tag.id for tag in row.tags)}
             )
             for row in transactions
         ],
