@@ -15,6 +15,7 @@ from app.api.routes import (
     categories,
     crypto,
     dashboard,
+    debts,
     goals,
     income_tax,
     insights,
@@ -93,6 +94,7 @@ app.include_router(income_tax.router, prefix="/api")
 app.include_router(cash_flow.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(crypto.router, prefix="/api")
+app.include_router(debts.router, prefix="/api")
 
 
 @app.get("/api/health")

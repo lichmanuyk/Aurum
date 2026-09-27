@@ -330,9 +330,16 @@ async def update_transaction(
         raise HTTPException(status_code=404, detail="Transaction not found")
     if transaction.type in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL):
         raise HTTPException(409, "Edit linked asset movements through the asset movement route")
+    # Same guard, for a debt's own linked issuance/repayment/reversal leg —
+    # see docs/tasks/debt-tracking.md and services/debt_service.py, which
+    # owns every field this row can ever change through.
+    if transaction.type in (TransactionType.DEBT_IN, TransactionType.DEBT_OUT):
+        raise HTTPException(409, "Edit linked debt transactions through the debt routes")
     updates = payload.model_dump(exclude_unset=True, exclude={"tag_ids", "splits"})
     if updates.get("type") in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL):
         raise HTTPException(422, "Use the asset movement route for purchases and sales")
+    if updates.get("type") in (TransactionType.DEBT_IN, TransactionType.DEBT_OUT):
+        raise HTTPException(422, "Use the debt routes for loan issuance, repayments and reversals")
     if any(updates.get(k, True) is None for k in ("account_id", "type", "amount", "date", "description")):
         raise HTTPException(422, "Required transaction fields cannot be null")
     # Checks run against the row as it would look after the patch, not just
@@ -470,5 +477,7 @@ async def delete_transaction(transaction_id: int, session: AsyncSession = Depend
         raise HTTPException(status_code=404, detail="Transaction not found")
     if transaction.type in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL):
         raise HTTPException(409, "Delete linked asset movements through the asset movement route")
+    if transaction.type in (TransactionType.DEBT_IN, TransactionType.DEBT_OUT):
+        raise HTTPException(409, "Delete linked debt transactions through the debt routes")
     await session.delete(transaction)
     await session.commit()

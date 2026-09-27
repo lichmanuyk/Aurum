@@ -64,7 +64,7 @@ export function NetWorthPage() {
       {!error && <>
       <NetWorthChart summary={summary} isLoading={isSummaryLoading} range={range} onRangeChange={setRange} />
 
-      <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} />
+      <AssetAllocationCard breakdown={summary?.breakdown ?? []} isLoading={isSummaryLoading} totalLiabilities={summary?.total_liabilities} />
 
       <CapitalRoleSummaryCard roles={summary?.capital_roles ?? []} isLoading={isSummaryLoading} />
 

@@ -13,6 +13,8 @@ from app.models.enums import (
     CapitalRole,
     CategoryKind,
     CryptoTransactionType,
+    DebtDirection,
+    DebtRepaymentKind,
     MandatoryPaymentKind,
     RecurringFrequency,
     RiskLevel,
@@ -241,6 +243,34 @@ class RecurringTransactionBackup(BaseModel):
     is_active: bool
 
 
+class DebtBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    direction: DebtDirection
+    counterparty: str
+    currency: str
+    principal_amount: Decimal
+    start_date: date_
+    due_date: date_ | None
+    note: str | None
+    issuance_transaction_id: int | None
+    idempotency_key: str | None
+
+
+class DebtRepaymentBackup(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    debt_id: int
+    transaction_id: int
+    kind: DebtRepaymentKind
+    reverses_repayment_id: int | None
+    amount_debt_currency: Decimal
+    note: str | None
+    idempotency_key: str | None
+
+
 class AppSettingsBackup(BaseModel):
     idle_cash_threshold_currency: str | None = None
     model_config = ConfigDict(from_attributes=True)
@@ -305,6 +335,11 @@ class BackupPayload(BaseModel):
     # Defaulted so a backup exported before recurring transactions existed
     # still imports cleanly under the same format version.
     recurring_transactions: list[RecurringTransactionBackup] = Field(default_factory=list)
+    # Defaulted so a backup exported before debt tracking existed (format
+    # < 12 — see docs/tasks/debt-tracking.md) still imports cleanly, with
+    # no debts/repayments at all rather than some default row.
+    debts: list[DebtBackup] = Field(default_factory=list)
+    debt_repayments: list[DebtRepaymentBackup] = Field(default_factory=list)
     # Defaulted so a backup exported before the currency setting existed
     # still imports cleanly under the same format version.
     app_settings: AppSettingsBackup = Field(default_factory=lambda: AppSettingsBackup(currency="USD"))

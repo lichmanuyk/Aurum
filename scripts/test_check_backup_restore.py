@@ -60,6 +60,17 @@ class RestoreCheckTests(unittest.TestCase):
             with patch.object(check_backup_restore, 'BACKUPS', root):
                 self.assertEqual(check_backup_restore.latest_backup(now)[1], raw)
 
+    def test_latest_backup_accepts_current_v12_format(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+            path = root / now.strftime('aurum-auto-%Y%m%dT%H%M%S%fZ.json')
+            raw = json.dumps({'aurum_backup_version': 12, 'accounts': [{}], 'transactions': [{}]}).encode()
+            path.write_bytes(raw)
+            path.with_suffix('.sha256').write_text(hashlib.sha256(raw).hexdigest() + '  ' + path.name)
+            with patch.object(check_backup_restore, 'BACKUPS', root):
+                self.assertEqual(check_backup_restore.latest_backup(now)[1], raw)
+
     def test_compare_checks_every_section_except_export_time(self):
         original = {'exported_at': 'a', 'aurum_backup_version': 6,
                     'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
@@ -194,6 +205,31 @@ class RestoreCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'transactions'):
             check_backup_restore.compare(original, {**original,
                 'transactions': [{**original['transactions'][0], 'mandatory_payment_kind': 'ppe'}]})
+
+    def test_compare_backfills_empty_debts_for_pre_v12_backups(self):
+        # A backup exported before debt tracking existed (format < 12 —
+        # see docs/tasks/debt-tracking.md) has no `debts`/`debt_repayments`
+        # keys at all — restoring it into a v12-capable app must not report
+        # a false mismatch just because the re-export now carries those
+        # keys as empty lists.
+        original = {'exported_at': 'a', 'aurum_backup_version': 11,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}]}
+        restored = {**original, 'exported_at': 'b', 'aurum_backup_version': 12, 'debts': [], 'debt_repayments': []}
+        check_backup_restore.compare(original, restored)
+        # A genuine difference (a real debt that failed to survive restore,
+        # or one silently invented) must still fail.
+        with self.assertRaisesRegex(RuntimeError, 'debts'):
+            check_backup_restore.compare(original, {**restored, 'debts': [{'id': 1}]})
+
+    def test_compare_still_matches_v12_backups_verbatim(self):
+        original = {'exported_at': 'a', 'aurum_backup_version': 12,
+                    'accounts': [{'id': 1}], 'transactions': [{'id': 2}],
+                    'debts': [{'id': 1, 'counterparty': 'Alex'}],
+                    'debt_repayments': [{'id': 1, 'debt_id': 1, 'amount_debt_currency': '10'}]}
+        check_backup_restore.compare(original, {**original, 'exported_at': 'b'})
+        with self.assertRaisesRegex(RuntimeError, 'debt_repayments'):
+            check_backup_restore.compare(original, {**original,
+                'debt_repayments': [{**original['debt_repayments'][0], 'amount_debt_currency': '99'}]})
 
     def test_compare_treats_shuffled_records_as_equal(self):
         # A real production restore once reported a false mismatch this

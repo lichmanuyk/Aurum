@@ -62,6 +62,12 @@ _CLASS_META: dict[str, tuple[str, str, str]] = {
     AssetClass.VEHICLES.value: ("Транспорт", "#e87ba4", "car"),  # slot 5 magenta
     AssetClass.PRECIOUS_METALS.value: ("Драгметаллы", "#008300", "gem"),  # slot 6 green
     AssetClass.OTHER.value: ("Прочее", "#4a3aa7", "package"),  # slot 7 violet
+    # A receivable (docs/tasks/debt-tracking.md) joins the positive
+    # breakdown as its own class-like slice — slot 8 red, the last of the
+    # dataviz skill's validated 8-slot categorical order (see db/seed.py's
+    # own "Health & Fitness" for the same hex). A liability never gets a
+    # slot here on purpose — see get_net_worth_summary's own comment.
+    "receivables": ("Мне должны", "#e34948", "hand-coins"),  # slot 8 red
 }
 
 _ROLE_META: dict[CapitalRole, tuple[str, str]] = {
@@ -111,9 +117,15 @@ async def _cash_cumulative_events(session: AsyncSession) -> list[tuple[date_, De
 
     delta_by_date: dict[date_, Decimal] = defaultdict(Decimal)
     for tx_date, tx_type, amount, account_id, transfer_account_id in txns_result.all():
-        if tx_type in (TransactionType.INCOME, TransactionType.ASSET_SELL) and account_id in cash_account_ids:
+        # DEBT_IN/DEBT_OUT (docs/tasks/debt-tracking.md) join the same cash
+        # sign rule as their income/expense-shaped counterparts — a loan or
+        # repayment really does move real cash, so it belongs in this same
+        # daily cash series; the debt's own receivable/liability side is a
+        # separate contribution merged in by get_net_worth_summary (see
+        # debt_service.net_worth_contribution), never doubled here.
+        if tx_type in (TransactionType.INCOME, TransactionType.ASSET_SELL, TransactionType.DEBT_IN) and account_id in cash_account_ids:
             delta_by_date[tx_date] += amount
-        elif tx_type in (TransactionType.EXPENSE, TransactionType.ASSET_BUY) and account_id in cash_account_ids:
+        elif tx_type in (TransactionType.EXPENSE, TransactionType.ASSET_BUY, TransactionType.DEBT_OUT) and account_id in cash_account_ids:
             delta_by_date[tx_date] -= amount
         elif tx_type == TransactionType.TRANSFER:
             if account_id in cash_account_ids:
@@ -248,14 +260,47 @@ def _resolve_start_date(range_key: str, cash_events: list[tuple[date_, Decimal]]
 
 
 async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWorthSummary:
+    from app.services import debt_service  # local import: avoids a module-level cycle (debt_service has no reverse need of this module)
+
     today = business_today()
     start = today - timedelta(days=RANGE_DAYS[range_key] - 1) if range_key in RANGE_DAYS else None
+    # "All time" (start is None here) must reach back to a debt's own
+    # start_date too, not just the earliest cash/asset activity — an
+    # opening debt dated before any transaction ever existed would
+    # otherwise have its own earliest history silently clipped off the
+    # left edge of the chart. Cheap enough to check unconditionally: a
+    # second stock_series call only actually happens on the rare "all
+    # time, and some debt predates every cash/asset event" combination.
+    if start is None:
+        earliest_debt_start = await debt_service.earliest_debt_start_date(session)
+    else:
+        earliest_debt_start = None
     points, cash_today, current_by_asset, assets, fx = await stock_series(session, start, today, account_types=CASH_ACCOUNT_TYPES)
+    if earliest_debt_start is not None and points and earliest_debt_start < points[0][0]:
+        points, cash_today, current_by_asset, assets, fx = await stock_series(
+            session, earliest_debt_start, today, account_types=CASH_ACCOUNT_TYPES
+        )
     class_totals = defaultdict(Decimal)
     for key, value in current_by_asset.items():
         class_totals[assets[key].asset_class] += value
     capital_roles = await _capital_role_summary(session, current_by_asset)
-    series = [NetWorthPoint(date=day, value=value) for day, value in points]
+
+    # Debts (docs/tasks/debt-tracking.md) contribute a third, independent
+    # stream: a receivable (owed_to_me) adds to capital like an asset, a
+    # liability (owed_by_me) subtracts — "Capital = cash + assets +
+    # receivables - liabilities", never double-counted against the same
+    # debt's own linked cash Transaction (that Transaction only ever moves
+    # `cash_today`/`points` above by the real amount that left/entered an
+    # account; the receivable/liability figures below are the *other* side
+    # of that same atomic event — the claim itself, not the cash it moved).
+    effective_start = points[0][0] if points else today
+    debt_points, receivable_today, liability_today = await debt_service.net_worth_contribution(
+        session, fx, effective_start, today
+    )
+    series = [
+        NetWorthPoint(date=day, value=cash_asset_value + receivable - liability)
+        for (day, cash_asset_value), (_, receivable, liability) in zip(points, debt_points)
+    ]
 
     current = series[-1].value if series else Decimal("0")
     start_value = series[0].value if series else Decimal("0")
@@ -266,7 +311,15 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWor
     # cash_today is the same as-of converted snapshot used by the final chart point.
     risk_levels = await _risk_level_summary(session, current_by_asset, cash_today)
 
-    total = cash_today + sum(class_totals.values(), Decimal("0"))
+    # Receivables join the *positive* breakdown/percent total below, same
+    # as an asset class — a claim on someone else's money genuinely is
+    # part of what's owned. Liabilities deliberately do NOT: a negative
+    # donut slice would either invert the whole chart's meaning or get
+    # silently clamped to zero, both of which hide money owed instead of
+    # showing it — total_liabilities below is the explicit, separate figure
+    # the frontend renders as its own callout instead (never folded into a
+    # slice claiming to be part of "how capital is allocated").
+    total = cash_today + sum(class_totals.values(), Decimal("0")) + receivable_today
 
     def _percent(amount: Decimal) -> float:
         return float(amount / total * 100) if total else 0.0
@@ -280,6 +333,11 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWor
         breakdown.append(
             NetWorthBreakdownItem(key=asset_class.value, name=name, color=color, icon=icon, amount=amount, percent=_percent(amount))
         )
+    if receivable_today:
+        name, color, icon = _CLASS_META["receivables"]
+        breakdown.append(
+            NetWorthBreakdownItem(key="receivables", name=name, color=color, icon=icon, amount=receivable_today, percent=_percent(receivable_today))
+        )
 
     return NetWorthSummary(
         fx_rates_used=fx.metadata(),
@@ -292,4 +350,6 @@ async def get_net_worth_summary(session: AsyncSession, range_key: str) -> NetWor
         breakdown=breakdown,
         capital_roles=capital_roles,
         risk_levels=risk_levels,
+        total_receivables=receivable_today,
+        total_liabilities=liability_today,
     )

@@ -60,10 +60,24 @@ class NetWorthSummary(BaseModel):
     fx_rates_used: list[dict[str, str]] = Field(default_factory=list)
     reporting_currency: str
     range: str
+    # cash + assets + total_receivables - total_liabilities — see
+    # docs/tasks/debt-tracking.md and net_worth_service.get_net_worth_summary.
     current: Decimal
     change_amount: Decimal
     change_percent: float | None
     series: list[NetWorthPoint]
+    # Receivables (owed_to_me debts) join this as their own positive
+    # class-like slice (key="receivables"); liabilities deliberately never
+    # appear here — see total_liabilities below and
+    # get_net_worth_summary's own comment on why a negative donut slice
+    # would misrepresent money owed rather than surface it.
     breakdown: list[NetWorthBreakdownItem]
     capital_roles: list[CapitalRoleSummary]
     risk_levels: list[RiskLevelSummary]
+    # Today's total across every owed_to_me/owed_by_me Debt, in
+    # reporting_currency — the same figures already folded into
+    # `current`/`series` above, surfaced explicitly so the UI can show
+    # liabilities as their own clearly-negative callout instead of
+    # silently dropping them from the capital view.
+    total_receivables: Decimal
+    total_liabilities: Decimal

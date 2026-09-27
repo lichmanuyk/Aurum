@@ -328,7 +328,7 @@ async def test_backup_roundtrip_preserves_new_columns_and_defaults_older_version
     })
 
     payload = (await client.get("/backup/export")).json()
-    assert payload["aurum_backup_version"] == 11
+    assert payload["aurum_backup_version"] == 12
 
     restored = await client.post("/backup/import", json=payload)
     assert restored.status_code == 200, restored.text

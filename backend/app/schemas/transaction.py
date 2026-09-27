@@ -199,6 +199,8 @@ class TransactionBase(TransactionFields):
     def _validate_type_specific_fields(self) -> "TransactionBase":
         if self.type in (TransactionType.ASSET_BUY, TransactionType.ASSET_SELL):
             raise ValueError("Use the asset movement route for purchases and sales")
+        if self.type in (TransactionType.DEBT_IN, TransactionType.DEBT_OUT):
+            raise ValueError("Use the debt routes for loan issuance, repayments and reversals")
         violation = adjustment_rule_violation(self.type, self.amount, self.adjustment_reason, self.category_id) or transfer_rule_violation(
             type=self.type,
             account_id=self.account_id,

@@ -29,6 +29,7 @@ LIST_SECTIONS = (
     'accounts', 'categories', 'tags', 'transactions', 'transaction_splits', 'assets',
     'asset_valuations', 'crypto_portfolios', 'crypto_holdings', 'crypto_transactions',
     'budgets', 'goals', 'goal_contributions', 'recurring_transactions', 'fx_rates',
+    'debts', 'debt_repayments',
 )
 
 
@@ -76,7 +77,7 @@ def latest_backup(now=None):
     if not re.fullmatch(r'[0-9a-f]{64}', expected) or hashlib.sha256(raw).hexdigest() != expected:
         raise RuntimeError('Backup checksum mismatch')
     data = json.loads(raw)
-    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9, 10, 11) or not data.get('accounts') or not data.get('transactions'):
+    if data.get('aurum_backup_version') not in (5, 6, 7, 8, 9, 10, 11, 12) or not data.get('accounts') or not data.get('transactions'):
         raise RuntimeError('Backup format or financial history is unexpected')
     return path, raw, data
 
@@ -124,6 +125,19 @@ def compare(original, restored):
             row.setdefault('mandatory_payment_kind', None)
         for row in original.get('recurring_transactions', []):
             row.setdefault('mandatory_payment_kind', None)
+    # Format 12 added debt tracking (see docs/tasks/debt-tracking.md) as two
+    # brand-new top-level sections, not a new field nested in an existing
+    # one — unlike every backfill block above, this isn't gated on the
+    # file's own version at all: neither side (`original` from a real file,
+    # OR a hand-built `original`/`restored` dict in a test that predates
+    # debts entirely and never mentions either key) needs to actually carry
+    # these keys for two exports of the same real data to agree — an absent
+    # key and an explicitly-empty list mean exactly the same thing here, on
+    # either side, always.
+    original.setdefault('debts', [])
+    original.setdefault('debt_repayments', [])
+    restored.setdefault('debts', [])
+    restored.setdefault('debt_repayments', [])
     # A supported older file is re-exported using the current format version.
     original = {key: value for key, value in original.items() if key not in ('exported_at', 'aurum_backup_version')}
     restored = {key: value for key, value in restored.items() if key not in ('exported_at', 'aurum_backup_version')}
